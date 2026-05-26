@@ -1,0 +1,234 @@
+import axios from "axios";
+import WebSocket from "ws";
+import dotenv from "dotenv";
+dotenv.config();
+
+const PTERO_URL = process.env.PTERODACTYL_URL;
+const SERVER_ID = process.env.PTERODACTYL_SERVER_ID;
+const API_KEY = process.env.PTERODACTYL_API_KEY;
+
+const apiClient = axios.create({
+  baseURL: `${PTERO_URL}/api/client/servers/${SERVER_ID}`,
+  headers: {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${API_KEY}`,
+  },
+});
+
+let wsInstance = null;
+let reconnectTimer = null;
+let reconnectDelay = 5000;
+const MAX_RECONNECT_DELAY = 60000;
+
+const HIBERNATION_SIGNATURES = ["MINECRAFT SERVER IS OFFLINE!"];
+
+export let intentionalShutdown = false;
+let isAutoWaking = false;
+
+/**
+ * Establishes and manages a WebSocket connection to the Pterodactyl daemon.
+ * Handles auto-reconnection and parses incoming stats and console messages.
+ *
+ * @param {Object} handlers - Event handlers for WebSocket messages.
+ * @param {function(Object): void} handlers.onStatsUpdate - Triggered when server statistics are received.
+ * @param {function(string): void} handlers.onConsoleUpdate - Triggered when a new console line is received.
+ */
+export async function connectWebSocket(handlers) {
+  const { onStatsUpdate, onConsoleUpdate } = handlers;
+
+  clearTimeout(reconnectTimer);
+
+  if (wsInstance) {
+    wsInstance.removeAllListeners();
+    try {
+      wsInstance.terminate();
+    } catch (e) {}
+    wsInstance = null;
+  }
+
+  try {
+    const response = await apiClient.get("/websocket");
+    const { token, socket } = response.data.data;
+
+    wsInstance = new WebSocket(socket, {
+      headers: { Origin: PTERO_URL },
+    });
+
+    wsInstance.on("open", () => {
+      console.log(
+        "[Pterodactyl WS] Connected to live stats stream. Authenticating...",
+      );
+      reconnectDelay = 5000;
+      wsInstance.send(JSON.stringify({ event: "auth", args: [token] }));
+    });
+
+    wsInstance.on("message", (data) => {
+      try {
+        const message = JSON.parse(data);
+        if (message.event === "auth success") {
+          console.log(
+            "[Pterodactyl WS] Authenticated. Requesting historical logs...",
+          );
+          wsInstance.send(JSON.stringify({ event: "send logs", args: [null] }));
+        } else if (message.event === "stats") {
+          if (!onStatsUpdate) return;
+          const stats = JSON.parse(message.args[0]);
+
+          const standardizedStats = {
+            current_state: stats.state,
+            resources: {
+              memory_bytes: stats.memory_bytes,
+              memory_limit_bytes: stats.memory_limit_bytes,
+              cpu_absolute: stats.cpu_absolute,
+              uptime: stats.uptime,
+            },
+          };
+          onStatsUpdate(standardizedStats);
+        } else if (message.event === "console output") {
+          if (!onConsoleUpdate) return;
+          const logLine = message.args[0];
+          onConsoleUpdate(logLine);
+
+          if (!intentionalShutdown && !isAutoWaking) {
+            const isHibernating = HIBERNATION_SIGNATURES.some((sig) =>
+              logLine.includes(sig),
+            );
+            if (isHibernating) {
+              isAutoWaking = true;
+              console.log(
+                `[Daemon] MSH Hibernation log detected: "${logLine}". Initiating auto-wake in 15 seconds...`,
+              );
+              onConsoleUpdate(
+                "\u001b[1;31m[SYS] HIBERNATION DETECTED! RESTARTING SERVER IN 15 SECONDS...\u001b[0m",
+              );
+
+              setTimeout(() => {
+                sendCommand("msh start")
+                  .then(() => {
+                    isAutoWaking = false;
+                  })
+                  .catch((err) => {
+                    console.error(
+                      "[Daemon] Failed to send msh start:",
+                      err.message,
+                    );
+                    isAutoWaking = false;
+                  });
+                if (onConsoleUpdate) {
+                  onConsoleUpdate(
+                    '\u001b[1;35m[SYS]\u001b[0m \u001b[1;32mAUTO-RESTARTER DAEMON: FIRING "msh start" WAKE COMMAND NOW!\u001b[0m',
+                  );
+                }
+              }, 15000);
+            }
+          }
+        } else if (message.event === "token expiring") {
+          console.log("[Pterodactyl WS] Token expiring, reconnecting...");
+          connectWebSocket(handlers);
+        }
+      } catch (err) {}
+    });
+
+    wsInstance.on("close", () => {
+      console.log(
+        `[Pterodactyl WS] Connection closed. Reconnecting in ${reconnectDelay}ms...`,
+      );
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(() => {
+        reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
+        connectWebSocket(handlers);
+      }, reconnectDelay);
+    });
+
+    wsInstance.on("error", (error) => {
+      console.error("[Pterodactyl WS] Error:", error.message);
+    });
+  } catch (error) {
+    if (error.response?.status !== 409) {
+      console.error(
+        "[Pterodactyl WS] Failed to initialize connection:",
+        error.message,
+      );
+    }
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => {
+      reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
+      connectWebSocket(handlers);
+    }, reconnectDelay);
+  }
+}
+
+/**
+ * Retrieves the current status and resource utilization from the Pterodactyl API.
+ *
+ * @returns {Promise<Object>} An object containing the current server state and resource usage.
+ */
+export async function getServerStatus() {
+  try {
+    const response = await apiClient.get("/resources");
+    return response.data.attributes;
+  } catch (error) {
+    if (error.response?.status === 409) {
+      return {
+        current_state: "suspended",
+        resources: {
+          memory_bytes: 0,
+          memory_limit_bytes: 0,
+          cpu_absolute: 0,
+          uptime: 0,
+        },
+      };
+    }
+    console.error(
+      "[Pterodactyl] Failed to fetch server status:",
+      error.response?.data || error.message,
+    );
+    throw new Error("Failed to fetch server status");
+  }
+}
+
+/**
+ * Transmits a power action signal to the game server.
+ *
+ * @param {string} signal - The power action to perform ('start', 'stop', 'restart', or 'kill').
+ * @returns {Promise<boolean>} True if the command was successfully dispatched.
+ */
+export async function setPowerState(signal) {
+  try {
+    if (signal === "stop" || signal === "kill") {
+      intentionalShutdown = true;
+    } else if (signal === "start" || signal === "restart") {
+      intentionalShutdown = false;
+    }
+
+    await apiClient.post("/power", { signal });
+    return true;
+  } catch (error) {
+    const errorDetail =
+      error.response?.data?.errors?.[0]?.detail || error.message;
+    console.error(
+      `[Pterodactyl] Failed to send power signal ${signal}:`,
+      errorDetail,
+    );
+    throw new Error(errorDetail);
+  }
+}
+
+/**
+ * Dispatches a console command directly to the game server process.
+ *
+ * @param {string} command - The raw command string to execute.
+ * @returns {Promise<boolean>} True if the command was successfully dispatched.
+ */
+export async function sendCommand(command) {
+  try {
+    await apiClient.post("/command", { command });
+    return true;
+  } catch (error) {
+    const errorDetail =
+      error.response?.data?.errors?.[0]?.detail || error.message;
+    console.error(`[Pterodactyl] Failed to send command:`, errorDetail);
+    throw new Error(errorDetail);
+  }
+}

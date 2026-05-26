@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  nexkord-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nexkord-adm
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/usr/src/app/logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M

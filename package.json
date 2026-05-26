@@ -5,15 +5,19 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "deploy": "node src/deploy-commands.js",
+    "build": "node src/deploy-commands.js",
+    "start": "node src/deploy-commands.js && node src/index.js",
+    "dev": "node src/deploy-commands.js && nodemon src/index.js"
   },
   "dependencies": {
+    "axios": "^1.16.1",
     "discord.js": "^14.14.1",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0",
-    "eslint": "^8.57.0"
+    "eslint": "^8.57.0",
+    "nodemon": "^3.1.0"
   }
 }

@@ -49,20 +49,11 @@ async function buildDashboardPayload(status = null) {
 
   const container = new ContainerBuilder().setAccentColor(0x00ffff);
 
-  let bannerUrl = "attachment://mc-banner-slim.jpeg";
+  const needsUpload = !cachedBannerCdnUrl;
+  const bannerUrl = cachedBannerCdnUrl || "attachment://mc-banner-slim.jpeg";
   let filesToUpload = [];
-  let attachmentsToKeep = [];
 
-  if (activeDashboardMessage && activeDashboardMessage.attachments && activeDashboardMessage.attachments.size > 0) {
-    const existingAttachment = activeDashboardMessage.attachments.find(
-      (a) => a.name === "mc-banner-slim.jpeg",
-    );
-    if (existingAttachment) {
-      attachmentsToKeep.push(existingAttachment);
-    } else {
-      filesToUpload.push(new AttachmentBuilder("./assets/mc-banner-slim.jpeg", { name: "mc-banner-slim.jpeg" }));
-    }
-  } else {
+  if (needsUpload) {
     filesToUpload.push(new AttachmentBuilder("./assets/mc-banner-slim.jpeg", { name: "mc-banner-slim.jpeg" }));
   }
 
@@ -218,14 +209,12 @@ async function buildDashboardPayload(status = null) {
   if (filesToUpload.length > 0) {
     payload.files = filesToUpload;
   }
-  if (attachmentsToKeep.length > 0) {
-    payload.attachments = attachmentsToKeep;
-  }
 
   return payload;
 }
 
 let activeDashboardMessage = null;
+let cachedBannerCdnUrl = null;
 let lastUpdateTimestamp = 0;
 let pendingUpdateStats = null;
 let updateTimer = null;
@@ -431,6 +420,7 @@ async function triggerDashboardEdit() {
   try {
     const payload = await buildDashboardPayload(pendingUpdateStats);
     activeDashboardMessage = await activeDashboardMessage.edit(payload);
+    extractBannerCdnUrl(activeDashboardMessage);
   } catch (e) {
     console.error("[Dashboard WS] Failed to edit message:", e.message);
     if (e.message.includes("Unknown Message")) {
@@ -439,6 +429,7 @@ async function triggerDashboardEdit() {
       );
       const client = activeDashboardMessage.client;
       activeDashboardMessage = null;
+      cachedBannerCdnUrl = null;
       postMinecraftDashboard(client);
     }
   }
@@ -450,6 +441,16 @@ async function triggerDashboardEdit() {
  *
  * @param {Client} client - The active discord.js client instance.
  */
+function extractBannerCdnUrl(message) {
+  if (cachedBannerCdnUrl || !message?.attachments) return;
+  const bannerAttachment = message.attachments.find(
+    (a) => a.name === "mc-banner-slim.jpeg",
+  );
+  if (bannerAttachment?.url) {
+    cachedBannerCdnUrl = bannerAttachment.url;
+  }
+}
+
 export async function postMinecraftDashboard(client) {
   const channelId = process.env.DASHBOARD_CHANNEL_ID;
   if (!channelId) {
@@ -477,6 +478,7 @@ export async function postMinecraftDashboard(client) {
 
     if (existing) {
       activeDashboardMessage = existing;
+      extractBannerCdnUrl(existing);
     }
   } catch (error) {
     console.error(
@@ -495,6 +497,7 @@ export async function postMinecraftDashboard(client) {
       activeDashboardMessage = await channel.send(payload);
       console.log("[Minecraft Dashboard] Posted new dashboard.");
     }
+    extractBannerCdnUrl(activeDashboardMessage);
   } catch (error) {
     console.error(
       "[Minecraft Dashboard] Failed to post/update dashboard:",

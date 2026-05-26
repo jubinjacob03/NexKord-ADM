@@ -1,0 +1,19 @@
+{
+  "name": "nexkord-adm",
+  "version": "1.0.0",
+  "description": "NexKord-ADM: Central Game Management Discord Bot",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0",
+    "eslint": "^8.57.0"
+  }
+}

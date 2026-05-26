@@ -53,17 +53,17 @@ async function buildDashboardPayload(status = null) {
   let filesToUpload = [];
   let attachmentsToKeep = [];
 
-  if (activeDashboardMessage && activeDashboardMessage.attachments.size > 0) {
+  if (activeDashboardMessage && activeDashboardMessage.attachments && activeDashboardMessage.attachments.size > 0) {
     const existingAttachment = activeDashboardMessage.attachments.find(
       (a) => a.name === "mc-banner-slim.jpeg",
     );
     if (existingAttachment) {
-      attachmentsToKeep.push({ id: existingAttachment.id });
+      attachmentsToKeep.push(existingAttachment);
     } else {
-      filesToUpload.push(new AttachmentBuilder("./assets/mc-banner-slim.jpeg"));
+      filesToUpload.push(new AttachmentBuilder("./assets/mc-banner-slim.jpeg", { name: "mc-banner-slim.jpeg" }));
     }
   } else {
-    filesToUpload.push(new AttachmentBuilder("./assets/mc-banner-slim.jpeg"));
+    filesToUpload.push(new AttachmentBuilder("./assets/mc-banner-slim.jpeg", { name: "mc-banner-slim.jpeg" }));
   }
 
   const bannerGallery = new MediaGalleryBuilder().addItems(
@@ -430,7 +430,7 @@ async function triggerDashboardEdit() {
 
   try {
     const payload = await buildDashboardPayload(pendingUpdateStats);
-    await activeDashboardMessage.edit(payload);
+    activeDashboardMessage = await activeDashboardMessage.edit(payload);
   } catch (e) {
     console.error("[Dashboard WS] Failed to edit message:", e.message);
     if (e.message.includes("Unknown Message")) {

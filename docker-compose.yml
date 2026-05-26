@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  nexkord-bot:
+  nexkord-adm:
     build:
       context: .
       dockerfile: Dockerfile

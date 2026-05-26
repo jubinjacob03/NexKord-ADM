@@ -5,6 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: nexkord-adm:latest
     container_name: nexkord-adm
     restart: unless-stopped
     env_file:

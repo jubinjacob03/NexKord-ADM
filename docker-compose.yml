@@ -12,6 +12,7 @@ services:
       - .env
     volumes:
       - ./logs:/usr/src/app/logs
+      - ./data/browser_profile:/usr/src/app/data/browser_profile
     logging:
       driver: "json-file"
       options:
@@ -20,6 +21,6 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 512M
         reservations:
-          memory: 128M
+          memory: 256M

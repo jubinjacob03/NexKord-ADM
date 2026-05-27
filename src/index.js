@@ -8,6 +8,7 @@ import {
   updateDashboardWithConsole,
 } from "./games/minecraft/dashboard.js";
 import { connectWebSocket } from "./games/minecraft/pterodactyl.js";
+import { initUptimeMonitor } from "./games/minecraft/uptimeMonitor.js";
 import { handleSlashCommand } from "./commands.js";
 
 dotenv.config();
@@ -32,6 +33,8 @@ client.once(Events.ClientReady, async (readyClient) => {
     onStatsUpdate: updateDashboardWithStats,
     onConsoleUpdate: updateDashboardWithConsole,
   });
+
+  initUptimeMonitor(client);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

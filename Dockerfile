@@ -9,9 +9,21 @@ RUN npm ci --only=production
 # Stage 2: Production env
 FROM node:20-alpine
 
+# Install Chromium and dependencies for Puppeteer
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
+
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
 # Set production environment variables
 ENV NODE_ENV=production
-ENV NODE_OPTIONS="--max-old-space-size=192"
+ENV NODE_OPTIONS="--max-old-space-size=384"
 
 WORKDIR /usr/src/app
 

@@ -22,7 +22,7 @@ let reconnectTimer = null;
 let reconnectDelay = 5000;
 const MAX_RECONNECT_DELAY = 60000;
 
-const HIBERNATION_SIGNATURES = ["MINECRAFT SERVER IS OFFLINE!"];
+const HIBERNATION_SIGNATURES = ["MINECRAFT SERVER IS OFFLINE!", "Status: Server is HIBERNATING"];
 
 export let intentionalShutdown = false;
 let isAutoWaking = false;

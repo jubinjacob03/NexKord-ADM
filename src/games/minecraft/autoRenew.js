@@ -1,10 +1,11 @@
-import puppeteerCore from 'puppeteer-core';
-import puppeteerExtra from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import { auditLog } from '../../utils/logger.js';
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import puppeteerCore from "puppeteer-core";
+import puppeteerExtra from "puppeteer-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import { auditLog } from "../../utils/logger.js";
+import { icon } from "../../utils/icons.js";
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 
 dotenv.config();
 
@@ -16,166 +17,204 @@ let isRenewing = false;
 /**
  * Automates the renewal process for the FreeGameHost server using Puppeteer.
  * Handles authentication, Turnstile bypass, and renewal clicking.
- * 
+ *
  * @param {import('discord.js').Client} client - The Discord client for sending notifications.
  */
 export async function executeAutoRenew(client) {
-    if (isRenewing) {
-        console.log("[Auto-Renew] Renewal already in progress. Skipping duplicate run.");
-        return;
+  if (isRenewing) {
+    console.log(
+      "[Auto-Renew] Renewal already in progress. Skipping duplicate run.",
+    );
+    return;
+  }
+
+  const uuid = process.env.FREEGAMEHOST_SERVER_UUID;
+  const sessionCookie = process.env.FGH_SESSION_COOKIE;
+
+  if (!uuid || !sessionCookie) {
+    auditLog(
+      "error",
+      "AUTORENEW",
+      "Missing FGH credentials (UUID or Session Cookie). Auto-renew aborted.",
+    );
+    return;
+  }
+
+  isRenewing = true;
+  auditLog("info", "AUTORENEW", "Starting headless auto-renewal sequence...");
+
+  const channel = client.channels.cache.get(channelId);
+
+  let browser = null;
+  try {
+    const userDataDir = path.join(
+      __dirname,
+      "..",
+      "..",
+      "..",
+      "data",
+      "browser_profile",
+    );
+
+    puppeteerExtra.use(StealthPlugin());
+
+    browser = await puppeteerExtra.launch({
+      executablePath:
+        process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium-browser",
+      userDataDir: userDataDir,
+      headless: "new",
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-accelerated-2d-canvas",
+        "--no-first-run",
+        "--no-zygote",
+        "--single-process",
+        "--disable-gpu",
+        "--mute-audio",
+        "--disable-extensions",
+        "--disable-background-networking",
+        "--window-size=1280,800",
+      ],
+    });
+
+    const page = await browser.newPage();
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    );
+
+    // Inject session cookie to bypass login block
+    await page.setCookie({
+      name: "pterodactyl_session",
+      value: sessionCookie,
+      domain: "panel.freegamehost.xyz",
+      path: "/",
+      httpOnly: true,
+      secure: true,
+    });
+
+    // 1. Navigate to the server page
+    const serverUrl = `https://panel.freegamehost.xyz/server/${uuid}`;
+    await page.goto(serverUrl, { waitUntil: "networkidle2", timeout: 30000 });
+
+    // 2. Check if we got redirected to login
+    if (page.url().includes("/auth/login")) {
+      auditLog(
+        "error",
+        "AUTORENEW",
+        "Session expired! The session cookie is no longer valid. Cannot auto-renew.",
+      );
+      if (channel) {
+        await channel.send({
+          content: `${icon("WARNING")} **Autonomous Renewal Failed**\nThe session cookie has expired. Please grab a new \`pterodactyl_session\` cookie from your browser and update the \`.env\` file.`,
+        });
+      }
+      return;
+    } else {
+      auditLog(
+        "info",
+        "AUTORENEW",
+        "Session is active. Proceeding with renewal...",
+      );
     }
 
-    const uuid = process.env.FREEGAMEHOST_SERVER_UUID;
-    const sessionCookie = process.env.FGH_SESSION_COOKIE;
+    // 3. Find and click the Renew button
+    auditLog("info", "AUTORENEW", "Scanning for Renew button...");
 
-    if (!uuid || !sessionCookie) {
-        auditLog('error', 'AUTORENEW', 'Missing FGH credentials (UUID or Session Cookie). Auto-renew aborted.');
-        return;
+    // Wait a brief moment for React to hydrate
+    await new Promise((r) => setTimeout(r, 3000));
+
+    // Intercept the API request to confirm success
+    const renewResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/client/freeservers/") &&
+        response.url().includes("/renew") &&
+        response.request().method() === "POST",
+      { timeout: 45000 }, // Turnstile can take a few seconds
+    );
+
+    const clicked = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll("button"));
+      const renewBtn = buttons.find(
+        (b) =>
+          (b.textContent.toLowerCase().includes("8 hours") ||
+            b.textContent.toLowerCase().includes("renew")) &&
+          !b.disabled,
+      );
+
+      if (renewBtn) {
+        renewBtn.click();
+        return true;
+      }
+      return false;
+    });
+
+    if (!clicked) {
+      auditLog(
+        "warn",
+        "AUTORENEW",
+        "Renew button not found or is currently disabled (cooldown active).",
+      );
+      return; // We don't notify Discord for normal cooldowns to avoid spam
     }
 
-    isRenewing = true;
-    auditLog('info', 'AUTORENEW', 'Starting headless auto-renewal sequence...');
+    auditLog(
+      "info",
+      "AUTORENEW",
+      "Renew button clicked. Waiting for Cloudflare Turnstile bypass and API response...",
+    );
 
-    const channel = client.channels.cache.get(channelId);
-    
-    let browser = null;
-    try {
-        const userDataDir = path.join(__dirname, '..', '..', '..', 'data', 'browser_profile');
-        
-        puppeteerExtra.use(StealthPlugin());
-        
-        browser = await puppeteerExtra.launch({
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
-            userDataDir: userDataDir,
-            headless: 'new',
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--single-process',
-                '--disable-gpu',
-                '--mute-audio',
-                '--disable-extensions',
-                '--disable-background-networking',
-                '--window-size=1280,800'
-            ]
+    const response = await renewResponsePromise;
+    const status = response.status();
+
+    if (status === 200 || status === 204) {
+      auditLog("info", "AUTORENEW", "Server successfully renewed (+8 hours).");
+      if (channel) {
+        await channel.send({
+          content: `${icon("SUCCESS")} **Autonomous Renewal Successful**\nThe Minecraft server uptime has been extended by 8 hours.`,
         });
-
-        const page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-        
-        // Inject session cookie to bypass login block
-        await page.setCookie({
-            name: 'pterodactyl_session',
-            value: sessionCookie,
-            domain: 'panel.freegamehost.xyz',
-            path: '/',
-            httpOnly: true,
-            secure: true
-        });
-
-        // 1. Navigate to the server page
-        const serverUrl = `https://panel.freegamehost.xyz/server/${uuid}`;
-        await page.goto(serverUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-
-        // 2. Check if we got redirected to login
-        if (page.url().includes('/auth/login')) {
-            auditLog('error', 'AUTORENEW', 'Session expired! The session cookie is no longer valid. Cannot auto-renew.');
-            if (channel) {
-                await channel.send({
-                    content: `⚠️ **Autonomous Renewal Failed**\nThe session cookie has expired. Please grab a new \`pterodactyl_session\` cookie from your browser and update the \`.env\` file.`
-                });
-            }
-            return;
-        } else {
-            auditLog('info', 'AUTORENEW', 'Session is active. Proceeding with renewal...');
-        }
-
-        // 3. Find and click the Renew button
-        auditLog('info', 'AUTORENEW', 'Scanning for Renew button...');
-        
-        // Wait a brief moment for React to hydrate
-        await new Promise(r => setTimeout(r, 3000));
-
-        // Intercept the API request to confirm success
-        const renewResponsePromise = page.waitForResponse(response => 
-            response.url().includes('/api/client/freeservers/') && 
-            response.url().includes('/renew') && 
-            response.request().method() === 'POST', 
-            { timeout: 45000 } // Turnstile can take a few seconds
-        );
-
-        const clicked = await page.evaluate(() => {
-            const buttons = Array.from(document.querySelectorAll('button'));
-            const renewBtn = buttons.find(b => 
-                (b.textContent.toLowerCase().includes('8 hours') || b.textContent.toLowerCase().includes('renew')) 
-                && !b.disabled
-            );
-            
-            if (renewBtn) {
-                renewBtn.click();
-                return true;
-            }
-            return false;
-        });
-
-        if (!clicked) {
-            auditLog('warn', 'AUTORENEW', 'Renew button not found or is currently disabled (cooldown active).');
-            return; // We don't notify Discord for normal cooldowns to avoid spam
-        }
-
-        auditLog('info', 'AUTORENEW', 'Renew button clicked. Waiting for Cloudflare Turnstile bypass and API response...');
-
-        const response = await renewResponsePromise;
-        const status = response.status();
-
-        if (status === 200 || status === 204) {
-            auditLog('info', 'AUTORENEW', 'Server successfully renewed (+8 hours).');
-            if (channel) {
-                await channel.send({
-                    content: `♻️ **Autonomous Renewal Successful**\nThe Minecraft server uptime has been extended by 8 hours.`
-                });
-            }
-        } else {
-            const text = await response.text();
-            throw new Error(`API returned HTTP ${status}: ${text}`);
-        }
-
-    } catch (error) {
-        auditLog('error', 'AUTORENEW', `Renewal failed: ${error.message}`);
-        if (channel) {
-            await channel.send({
-                content: `⚠️ **Autonomous Renewal Failed**\nAn error occurred while attempting to renew the server: \`${error.message}\``
-            });
-        }
-    } finally {
-        if (browser) {
-            try {
-                await browser.close();
-            } catch (e) {}
-        }
-        isRenewing = false;
+      }
+    } else {
+      const text = await response.text();
+      throw new Error(`API returned HTTP ${status}: ${text}`);
     }
+  } catch (error) {
+    auditLog("error", "AUTORENEW", `Renewal failed: ${error.message}`);
+    if (channel) {
+      await channel.send({
+        content: `${icon("WARNING")} **Autonomous Renewal Failed**\nAn error occurred while attempting to renew the server: \`${error.message}\``,
+      });
+    }
+  } finally {
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (e) {}
+    }
+    isRenewing = false;
+  }
 }
 
 /**
  * Initializes the auto-renewal background daemon.
  * Runs the renewal check every 6 hours.
- * 
- * @param {import('discord.js').Client} client 
+ *
+ * @param {import('discord.js').Client} client
  */
 export function startAutoRenewDaemon(client) {
-    // 6 hours in milliseconds
-    const RENEWAL_INTERVAL = 6 * 60 * 60 * 1000;
-    
-    // Initial run on startup (wait 30s to ensure everything else is initialized)
-    setTimeout(() => executeAutoRenew(client), 30000);
+  // 6 hours in milliseconds
+  const RENEWAL_INTERVAL = 6 * 60 * 60 * 1000;
 
-    // Schedule recurring runs
-    setInterval(() => executeAutoRenew(client), RENEWAL_INTERVAL);
-    
-    auditLog('info', 'AUTORENEW', 'Auto-renewal daemon started. Next check scheduled in 6 hours.');
+  // Initial run on startup (wait 30s to ensure everything else is initialized)
+  setTimeout(() => executeAutoRenew(client), 30000);
+
+  // Schedule recurring runs
+  setInterval(() => executeAutoRenew(client), RENEWAL_INTERVAL);
+
+  auditLog(
+    "info",
+    "AUTORENEW",
+    "Auto-renewal daemon started. Next check scheduled in 6 hours.",
+  );
 }

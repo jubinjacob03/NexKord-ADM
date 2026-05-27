@@ -16,6 +16,7 @@ import {
 import { getServerStatus, setPowerState, sendCommand } from "./pterodactyl.js";
 import { logMinecraftConsole, auditLog } from "../../utils/logger.js";
 import { eReply } from "../../utils/embed.js";
+import { icon } from "../../utils/icons.js";
 
 /**
  * Constructs the Discord UI payload representing the current Minecraft server state,
@@ -44,7 +45,9 @@ async function buildDashboardPayload(status = null) {
   const container = new ContainerBuilder().setAccentColor(0x00ffff);
 
   const bannerGallery = new MediaGalleryBuilder().addItems(
-    new MediaGalleryItemBuilder().setURL("https://raw.githubusercontent.com/jubinjacob03/jubinjacob03/main/Public-CDN/mc-banner-slim.jpeg"),
+    new MediaGalleryItemBuilder().setURL(
+      "https://raw.githubusercontent.com/jubinjacob03/jubinjacob03/main/Public-CDN/mc-banner-slim.jpeg",
+    ),
   );
   container.addMediaGalleryComponents(bannerGallery);
 
@@ -116,22 +119,22 @@ async function buildDashboardPayload(status = null) {
       displayState = uptimeStr;
     }
 
-    let cpuEmoji = "<:iconMicroBlueOutlined:1508819612098363473>";
+    let cpuEmoji = icon("MICRO_BLUE");
     if (
       status.resources.cpu_absolute >= 50 &&
       status.resources.cpu_absolute < 80
     )
-      cpuEmoji = "<:iconMicroYellowOutlined:1508819639889559683>";
+      cpuEmoji = icon("MICRO_YELLOW");
     else if (status.resources.cpu_absolute >= 80)
-      cpuEmoji = "<:iconMicroOrangeOutlined:1508819665957159052>";
+      cpuEmoji = icon("MICRO_ORANGE");
 
-    let powerEmoji = "<:iconPowerRedOutlined:1508819583912513607>";
+    let powerEmoji = icon("POWER_RED");
     if (isRunning || isStarting) {
-      powerEmoji = "<:iconPowerGreenOutlined:1508819556129312878>";
+      powerEmoji = icon("POWER_GREEN");
     } else if (state === "suspended") {
-      powerEmoji = "<:iconMicroOrangeOutlined:1508819665957159052>";
+      powerEmoji = icon("MICRO_ORANGE");
     }
-    const ramEmoji = "<:iconServerMagentaOutlined:1508819695493447842>";
+    const ramEmoji = icon("SERVER_MAGENTA");
 
     if (state === "suspended") {
       container.addTextDisplayComponents(
@@ -149,7 +152,7 @@ async function buildDashboardPayload(status = null) {
   } else {
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `\n\u2003<:iconPowerRedOutlined:1508819583912513607> : \`ERROR / UNREACHABLE\`\n`,
+        `\n\u2003${icon("POWER_RED")} : \`ERROR / UNREACHABLE\`\n`,
       ),
     );
   }
@@ -519,7 +522,7 @@ export async function handleMinecraftInteraction(interaction) {
         return interaction.reply(
           eReply(
             "Cooldown Active",
-            "⏳ Please wait 3 seconds before cycling power states to prevent server locking.",
+            `${icon("PENDING")} Please wait 3 seconds before cycling power states to prevent server locking.`,
           ),
         );
       }
@@ -544,7 +547,7 @@ export async function handleMinecraftInteraction(interaction) {
           await interaction.editReply(
             eReply(
               "Server Waking Up",
-              "✅ Wake signal sent! (Bypassed container restart since server is sleeping)",
+              `${icon("SUCCESS")} Wake signal sent! (Bypassed container restart since server is sleeping)`,
             ),
           );
         } else {
@@ -552,14 +555,14 @@ export async function handleMinecraftInteraction(interaction) {
           await interaction.editReply(
             eReply(
               "Power Action Sent",
-              `✅ Successfully sent **${action}** signal to the server.`,
+              `${icon("SUCCESS")} Successfully sent **${action}** signal to the server.`,
             ),
           );
         }
         setTimeout(() => postMinecraftDashboard(interaction.client), 3000);
       } catch (e) {
         await interaction.editReply(
-          eReply("Power Action Failed", `❌ ${e.message}`),
+          eReply("Power Action Failed", `${icon("ERROR")} ${e.message}`),
         );
       }
       return;
@@ -569,7 +572,10 @@ export async function handleMinecraftInteraction(interaction) {
       const now = Date.now();
       if (now - lastScrollTimestamp < 1000) {
         return interaction.reply(
-          eReply("Cooldown Active", "⏳ Please don't spam refresh."),
+          eReply(
+            "Cooldown Active",
+            `${icon("PENDING")} Please don't spam refresh.`,
+          ),
         );
       }
       lastScrollTimestamp = now;
@@ -585,7 +591,7 @@ export async function handleMinecraftInteraction(interaction) {
         return interaction.reply(
           eReply(
             "Slow Down",
-            "⏳ Slow down your scrolling to prevent Discord rate limits!",
+            `${icon("PENDING")} Slow down your scrolling to prevent Discord rate limits!`,
           ),
         );
       }
@@ -611,7 +617,9 @@ export async function handleMinecraftInteraction(interaction) {
       }
 
       try {
-        await interaction.update(await buildDashboardPayload(pendingUpdateStats));
+        await interaction.update(
+          await buildDashboardPayload(pendingUpdateStats),
+        );
       } catch (e) {
         console.error("[Dashboard] Scroll update failed:", e.message);
       }
@@ -624,7 +632,7 @@ export async function handleMinecraftInteraction(interaction) {
         return interaction.reply(
           eReply(
             "Cooldown Active",
-            "⏳ Please wait a moment before sending another command.",
+            `${icon("PENDING")} Please wait a moment before sending another command.`,
           ),
         );
       }
@@ -657,7 +665,7 @@ export async function handleMinecraftInteraction(interaction) {
         return interaction.reply(
           eReply(
             "Cooldown Active",
-            "⏳ Cooldown active. Please wait 2 seconds between commands.",
+            `${icon("PENDING")} Cooldown active. Please wait 2 seconds between commands.`,
           ),
         );
       }
@@ -682,7 +690,7 @@ export async function handleMinecraftInteraction(interaction) {
         await interaction.editReply(
           eReply(
             "Command Executed",
-            `✅ Successfully executed: \`${command}\``,
+            `${icon("SUCCESS")} Successfully executed: \`${command}\``,
           ),
         );
       } catch (error) {
@@ -692,7 +700,7 @@ export async function handleMinecraftInteraction(interaction) {
           `${interaction.user.tag} failed: ${command} | Error: ${error.message}`,
         );
         await interaction.editReply(
-          eReply("Command Failed", `❌ ${error.message}`),
+          eReply("Command Failed", `${icon("ERROR")} ${error.message}`),
         );
       }
       return;

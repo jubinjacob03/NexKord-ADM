@@ -25,7 +25,16 @@ const MAX_RECONNECT_DELAY = 60000;
 const HIBERNATION_SIGNATURES = ["MINECRAFT SERVER IS OFFLINE!", "Status: Server is HIBERNATING"];
 
 export let intentionalShutdown = false;
+export let isCurrentlyHibernating = false;
 let isAutoWaking = false;
+
+// Aggressive periodic watchdog: unconditionally blasts the server awake if it gets stuck asleep.
+setInterval(() => {
+  if (isCurrentlyHibernating && !intentionalShutdown) {
+    console.log("[Daemon] Watchdog enforcing anti-hibernation. Sending msh start...");
+    sendCommand("msh start").catch(() => {});
+  }
+}, 30000);
 
 /**
  * Establishes and manages a WebSocket connection to the Pterodactyl daemon.
@@ -91,17 +100,24 @@ export async function connectWebSocket(handlers) {
           const logLine = message.args[0];
           onConsoleUpdate(logLine);
 
+          const isHibernating = HIBERNATION_SIGNATURES.some((sig) =>
+            logLine.includes(sig),
+          );
+
+          if (isHibernating) {
+            isCurrentlyHibernating = true;
+          } else if (logLine.includes("MINECRAFT SERVER IS STARTING!")) {
+            isCurrentlyHibernating = false;
+          }
+
           if (!intentionalShutdown && !isAutoWaking) {
-            const isHibernating = HIBERNATION_SIGNATURES.some((sig) =>
-              logLine.includes(sig),
-            );
             if (isHibernating) {
               isAutoWaking = true;
               console.log(
                 `[Daemon] MSH Hibernation log detected: "${logLine}". Initiating auto-wake in 15 seconds...`,
               );
               onConsoleUpdate(
-                "\u001b[1;31m[SYS] HIBERNATION DETECTED! RESTARTING SERVER IN 15 SECONDS...\u001b[0m",
+                "\x1b[1;31m[SYS] HIBERNATION DETECTED! RESTARTING SERVER IN 15 SECONDS...\x1b[0m",
               );
 
               setTimeout(() => {
@@ -118,7 +134,7 @@ export async function connectWebSocket(handlers) {
                   });
                 if (onConsoleUpdate) {
                   onConsoleUpdate(
-                    '\u001b[1;35m[SYS]\u001b[0m \u001b[1;32mAUTO-RESTARTER DAEMON: FIRING "msh start" WAKE COMMAND NOW!\u001b[0m',
+                    '\x1b[1;35m[SYS]\x1b[0m \x1b[1;32mAUTO-RESTARTER DAEMON: FIRING "msh start" WAKE COMMAND NOW!\x1b[0m',
                   );
                 }
               }, 15000);

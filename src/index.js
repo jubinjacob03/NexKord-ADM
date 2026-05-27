@@ -10,6 +10,7 @@ import {
 import { connectWebSocket } from "./games/minecraft/pterodactyl.js";
 import { initUptimeMonitor } from "./games/minecraft/uptimeMonitor.js";
 import { handleSlashCommand } from "./commands.js";
+import { initIcons } from "./utils/icons.js";
 
 dotenv.config();
 
@@ -20,6 +21,7 @@ const client = new Client({
 });
 
 client.once(Events.ClientReady, async (readyClient) => {
+  initIcons(readyClient);
   console.log(
     `[NexKord - ADM] Successfully logged in as ${readyClient.user.tag}`,
   );

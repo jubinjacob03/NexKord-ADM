@@ -9,6 +9,7 @@ const API_KEY = process.env.PTERODACTYL_API_KEY;
 
 const apiClient = axios.create({
   baseURL: `${PTERO_URL}/api/client/servers/${SERVER_ID}`,
+  timeout: 10000,
   headers: {
     Accept: "application/json",
     "Content-Type": "application/json",
@@ -127,7 +128,9 @@ export async function connectWebSocket(handlers) {
           console.log("[Pterodactyl WS] Token expiring, reconnecting...");
           connectWebSocket(handlers);
         }
-      } catch (err) {}
+      } catch (err) {
+        console.error("[Pterodactyl WS] Failed to parse message:", err.message);
+      }
     });
 
     wsInstance.on("close", () => {

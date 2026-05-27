@@ -8,12 +8,10 @@ import {
   MessageFlags,
   ContainerBuilder,
   TextDisplayBuilder,
-  SectionBuilder,
   SeparatorBuilder,
   SeparatorSpacingSize,
   MediaGalleryBuilder,
   MediaGalleryItemBuilder,
-  StringSelectMenuBuilder,
 } from "discord.js";
 import { getServerStatus, setPowerState, sendCommand } from "./pterodactyl.js";
 import { logMinecraftConsole, auditLog } from "../../utils/logger.js";
@@ -41,9 +39,6 @@ async function buildDashboardPayload(status = null) {
   const isStarting = state === "starting";
   const isStopping = state === "stopping";
 
-  const canStart = isOffline;
-  const canStop = isRunning;
-  const canRestart = isRunning || isOffline;
   const canKill = isStarting || isRunning || isStopping;
 
   const container = new ContainerBuilder().setAccentColor(0x00ffff);
@@ -496,12 +491,16 @@ export async function handleMinecraftInteraction(interaction) {
     memberRoles?.has("1508887584032686201") ||
     memberRoles?.has("1473075468088377352");
   if (!hasRole) {
-    return interaction.reply(
-      eReply(
-        "Access Denied",
-        "Please ask the Minecraft Moderator to perform this action.",
-      ),
-    );
+    try {
+      return await interaction.reply(
+        eReply(
+          "Access Denied",
+          "Please ask the Minecraft Moderator to perform this action.",
+        ),
+      );
+    } catch (e) {
+      return;
+    }
   }
 
   if (interaction.isButton()) {
@@ -611,7 +610,11 @@ export async function handleMinecraftInteraction(interaction) {
         }, 20000);
       }
 
-      await interaction.update(await buildDashboardPayload(pendingUpdateStats));
+      try {
+        await interaction.update(await buildDashboardPayload(pendingUpdateStats));
+      } catch (e) {
+        console.error("[Dashboard] Scroll update failed:", e.message);
+      }
       return;
     }
 

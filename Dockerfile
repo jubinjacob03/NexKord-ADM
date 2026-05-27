@@ -20,4 +20,4 @@ COPY --from=builder /usr/src/app/node_modules ./node_modules
 COPY . .
 
 # Run the bot directly to bypass npm process memory overhead
-CMD ["node", "src/index.js"]
+CMD ["sh", "-c", "node src/deploy-commands.js && node src/index.js"]

@@ -46,4 +46,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
+process.on("unhandledRejection", (reason) => {
+  console.error("[FATAL] Unhandled Rejection:", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("[FATAL] Uncaught Exception:", err);
+  process.exit(1);
+});
+
 client.login(process.env.DISCORD_TOKEN);
+
+const shutdown = () => {
+  console.log("[NexKord - ADM] Shutting down gracefully...");
+  client.destroy();
+  process.exit(0);
+};
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

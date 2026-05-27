@@ -17,7 +17,11 @@ dotenv.config();
 initBotLogger();
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildEmojisAndStickers,
+  ],
 });
 
 client.once(Events.ClientReady, async (readyClient) => {

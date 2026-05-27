@@ -37,14 +37,29 @@
   "UNVERIFIED": { "serverEmojiName": "unverified", "fallback": "❗" },
   "SERVERBOOSTER": { "serverEmojiName": "serverbooster", "fallback": "💎" },
   "HELP_HEADER": { "serverEmojiName": "iconHelpHeader", "fallback": "📖" },
-  "HELP_ADMIN": { "serverEmojiName": "iconHelpAdmin", "fallback": "🛡️" },
-  "HELP_WORLD": { "serverEmojiName": "iconHelpWorld", "fallback": "🌐" },
-  "HELP_GAMEPLAY": { "serverEmojiName": "iconHelpGameplay", "fallback": "🎮" },
-  "HELP_MSH": { "serverEmojiName": "iconHelpMsh", "fallback": "🤖" },
-  "MICRO_BLUE": { "serverEmojiName": "iconMicroBlueOutlined", "fallback": "🔵" },
-  "MICRO_YELLOW": { "serverEmojiName": "iconMicroYellowOutlined", "fallback": "🟡" },
-  "MICRO_ORANGE": { "serverEmojiName": "iconMicroOrangeOutlined", "fallback": "🟠" },
+  "HELP_ADMIN": { "serverEmojiName": "iconProtect", "fallback": "🛡️" },
+  "HELP_WORLD": { "serverEmojiName": "iconWorld", "fallback": "🌐" },
+  "HELP_GAMEPLAY": { "serverEmojiName": "iconGame", "fallback": "🎮" },
+  "HELP_MSH": { "serverEmojiName": "iconCmd", "fallback": "🤖" },
+  "MICRO_BLUE": {
+    "serverEmojiName": "iconMicroBlueOutlined",
+    "fallback": "🔵"
+  },
+  "MICRO_YELLOW": {
+    "serverEmojiName": "iconMicroYellowOutlined",
+    "fallback": "🟡"
+  },
+  "MICRO_ORANGE": {
+    "serverEmojiName": "iconMicroOrangeOutlined",
+    "fallback": "🟠"
+  },
   "POWER_RED": { "serverEmojiName": "iconPowerRedOutlined", "fallback": "🔴" },
-  "POWER_GREEN": { "serverEmojiName": "iconPowerGreenOutlined", "fallback": "🟢" },
-  "SERVER_MAGENTA": { "serverEmojiName": "iconServerMagentaOutlined", "fallback": "🟣" }
+  "POWER_GREEN": {
+    "serverEmojiName": "iconPowerGreenOutlined",
+    "fallback": "🟢"
+  },
+  "SERVER_MAGENTA": {
+    "serverEmojiName": "iconServerMagentaOutlined",
+    "fallback": "🟣"
+  }
 }

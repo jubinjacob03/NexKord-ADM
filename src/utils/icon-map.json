@@ -61,5 +61,17 @@
   "SERVER_MAGENTA": {
     "serverEmojiName": "iconServerMagentaOutlined",
     "fallback": "🟣"
+  },
+  "SCROLL_UP": {
+    "serverEmojiName": "iconScrollUp",
+    "fallback": "🔼"
+  },
+  "SCROLL_DOWN": {
+    "serverEmojiName": "iconScrollDown",
+    "fallback": "🔽"
+  },
+  "TERMINAL": {
+    "serverEmojiName": "iconAction",
+    "fallback": "⌨️"
   }
 }

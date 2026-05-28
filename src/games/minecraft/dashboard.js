@@ -173,18 +173,18 @@ async function buildDashboardPayload(status = null) {
         .setDisabled(!canKill),
       new ButtonBuilder()
         .setCustomId("mc_send_cmd")
-        .setEmoji("1508877020652634233")
+        .setEmoji(icon("TERMINAL"))
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId("mc_scroll_up")
-        .setEmoji("1508822226441343137")
+        .setEmoji(icon("SCROLL_UP"))
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(
           scrollOffset >= Math.max(0, consoleBuffer.length - MAX_CONSOLE_LINES),
         ),
       new ButtonBuilder()
         .setCustomId("mc_scroll_down")
-        .setEmoji("1508822271857266839")
+        .setEmoji(icon("SCROLL_DOWN"))
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(scrollOffset === 0),
     ),

@@ -30,7 +30,8 @@ export async function scrapeUptime() {
 
     isScraping = true;
     let browser = null;
-    try {
+
+    const scrapePromise = async () => {
         browser = await puppeteerExtra.launch({
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
             headless: 'new',
@@ -52,7 +53,6 @@ export async function scrapeUptime() {
 
         const page = await browser.newPage();
         
-        // Increase the default navigation timeout globally
         page.setDefaultNavigationTimeout(60000);
         page.setDefaultTimeout(60000);
 
@@ -60,7 +60,6 @@ export async function scrapeUptime() {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         );
 
-        // Block heavy resources to save RAM and bandwidth
         await page.setRequestInterception(true);
         page.on('request', (req) => {
             const type = req.resourceType();
@@ -98,12 +97,9 @@ export async function scrapeUptime() {
 
         if (page.url().includes('/auth/login')) {
             console.error('[UptimeScraper] Session expired! Redirected to login page. Please update FGH_SESSION_COOKIE.');
-            await browser.close();
-            isScraping = false;
             return null;
         }
 
-        // Wait for the time string to appear
         await page.waitForFunction(() => {
             return document.body.innerText.match(/\b\d{2}:\d{2}:\d{2}\b/);
         });
@@ -114,13 +110,30 @@ export async function scrapeUptime() {
             return timeMatch ? timeMatch[0] : null;
         });
 
-        await browser.close();
-        isScraping = false;
         return timeRemaining;
+    };
 
+    const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Hard timeout of 65000ms reached!')), 65000);
+    });
+
+    try {
+        const result = await Promise.race([scrapePromise(), timeoutPromise]);
+        if (browser) {
+            await browser.close().catch(() => {});
+        }
+        isScraping = false;
+        return result;
     } catch (error) {
         console.error(`[UptimeScraper] Error: ${error.message}`);
         if (browser) {
+            try {
+                if (browser.process() && browser.process().pid) {
+                    process.kill(browser.process().pid, 'SIGKILL');
+                }
+            } catch (killError) {
+                // Ignore kill errors
+            }
             await browser.close().catch(() => {});
         }
         isScraping = false;

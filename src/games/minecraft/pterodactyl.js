@@ -236,6 +236,34 @@ export async function getServerStatus() {
   }
 }
 
+let cachedServerDetails = null;
+
+/**
+ * Retrieves the core server details including IP and Port.
+ * Caches the result since it doesn't change unless the server is reinstalled.
+ *
+ * @returns {Promise<Object>} An object containing ip and port.
+ */
+export async function getServerDetails() {
+  if (cachedServerDetails) return cachedServerDetails;
+  
+  try {
+    const response = await apiClient.get("");
+    const allocs = response.data.attributes.relationships?.allocations?.data;
+    if (allocs && allocs.length > 0) {
+      const defaultAlloc = allocs.find(a => a.attributes.is_default) || allocs[0];
+      const ip = defaultAlloc.attributes.ip_alias || defaultAlloc.attributes.ip;
+      const port = defaultAlloc.attributes.port;
+      cachedServerDetails = { ip, port };
+      return cachedServerDetails;
+    }
+    return { ip: "Unknown", port: "0000" };
+  } catch (error) {
+    console.error("[Pterodactyl] Failed to fetch server details:", error.message);
+    return { ip: "Unknown", port: "0000" };
+  }
+}
+
 /**
  * Transmits a power action signal to the game server.
  *

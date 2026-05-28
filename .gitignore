@@ -7,8 +7,9 @@ package-lock.json
 .env
 .env.local
 
-# Documentation
+# Documentation and Data
 docs/
+data/
 
 # IDEs and OS files
 .vscode/

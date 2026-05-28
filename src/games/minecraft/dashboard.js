@@ -13,7 +13,7 @@ import {
   MediaGalleryBuilder,
   MediaGalleryItemBuilder,
 } from "discord.js";
-import { getServerStatus, setPowerState, sendCommand } from "./pterodactyl.js";
+import { getServerStatus, setPowerState, sendCommand, getServerDetails } from "./pterodactyl.js";
 import { logMinecraftConsole, auditLog } from "../../utils/logger.js";
 import { eReply } from "../../utils/embed.js";
 import { icon } from "../../utils/icons.js";
@@ -50,6 +50,13 @@ async function buildDashboardPayload(status = null) {
     ),
   );
   container.addMediaGalleryComponents(bannerGallery);
+  
+  // Add server connection details
+  const details = await getServerDetails();
+  const connectionString = `**Server : ** \`${details.ip}\` \u00A0\u00A0 **Port : ** \`${details.port}\``;
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(connectionString)
+  );
 
   if (consoleBuffer.length > 0) {
     const startIdx = Math.max(

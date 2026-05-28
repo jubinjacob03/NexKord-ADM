@@ -6,11 +6,18 @@ dotenv.config();
 
 puppeteerExtra.use(StealthPlugin());
 
+let isScraping = false;
+
 /**
  * Scrapes the remaining uptime from FreeGameHost.
  * Returns the time string (e.g., "01:30:45") or null on failure.
  */
 export async function scrapeUptime() {
+    if (isScraping) {
+        console.log('[UptimeScraper] Scrape already in progress. Skipping...');
+        return null;
+    }
+
     const uuid = process.env.FREEGAMEHOST_SERVER_UUID;
     const sessionCookie = process.env.FGH_SESSION_COOKIE;
     const rememberCookieName = process.env.FGH_REMEMBER_COOKIE_NAME;
@@ -21,6 +28,7 @@ export async function scrapeUptime() {
         return null;
     }
 
+    isScraping = true;
     let browser = null;
     try {
         browser = await puppeteerExtra.launch({
@@ -75,7 +83,7 @@ export async function scrapeUptime() {
         await page.setCookie(...cookies);
         
         const url = `https://panel.freegamehost.xyz/server/${uuid}`;
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page.goto(url, { waitUntil: 'domcontentloaded' });
 
         // Wait for the time string to appear
         await page.waitForFunction(() => {
@@ -89,6 +97,7 @@ export async function scrapeUptime() {
         });
 
         await browser.close();
+        isScraping = false;
         return timeRemaining;
 
     } catch (error) {
@@ -96,6 +105,7 @@ export async function scrapeUptime() {
         if (browser) {
             await browser.close().catch(() => {});
         }
+        isScraping = false;
         return null;
     }
 }

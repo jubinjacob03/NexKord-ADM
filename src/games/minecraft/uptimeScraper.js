@@ -39,7 +39,14 @@ export async function scrapeUptime() {
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-gpu'
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu',
+                '--mute-audio',
+                '--disable-extensions',
+                '--disable-background-networking',
+                '--window-size=1280,800'
             ]
         });
 
@@ -48,6 +55,10 @@ export async function scrapeUptime() {
         // Increase the default navigation timeout globally
         page.setDefaultNavigationTimeout(60000);
         page.setDefaultTimeout(60000);
+
+        await page.setUserAgent(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        );
 
         // Block heavy resources to save RAM and bandwidth
         await page.setRequestInterception(true);

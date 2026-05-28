@@ -41,7 +41,7 @@ setInterval(() => {
     );
     sendCommand("msh start").catch(() => {});
   }
-}, 30000);
+}, 30000).unref();
 
 /**
  * Establishes and manages a WebSocket connection to the Pterodactyl daemon.

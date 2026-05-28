@@ -20,9 +20,14 @@ const apiClient = axios.create({
 let wsInstance = null;
 let reconnectTimer = null;
 let reconnectDelay = 5000;
+let pingInterval = null;
+let missedPings = 0;
 const MAX_RECONNECT_DELAY = 60000;
 
-const HIBERNATION_SIGNATURES = ["MINECRAFT SERVER IS OFFLINE!", "Status: Server is HIBERNATING"];
+const HIBERNATION_SIGNATURES = [
+  "MINECRAFT SERVER IS OFFLINE!",
+  "Status: Server is HIBERNATING",
+];
 
 export let intentionalShutdown = false;
 export let isCurrentlyHibernating = false;
@@ -31,7 +36,9 @@ let isAutoWaking = false;
 // Aggressive periodic watchdog: unconditionally blasts the server awake if it gets stuck asleep.
 setInterval(() => {
   if (isCurrentlyHibernating && !intentionalShutdown) {
-    console.log("[Daemon] Watchdog enforcing anti-hibernation. Sending msh start...");
+    console.log(
+      "[Daemon] Watchdog enforcing anti-hibernation. Sending msh start...",
+    );
     sendCommand("msh start").catch(() => {});
   }
 }, 30000);
@@ -48,6 +55,7 @@ export async function connectWebSocket(handlers) {
   const { onStatsUpdate, onConsoleUpdate } = handlers;
 
   clearTimeout(reconnectTimer);
+  clearInterval(pingInterval);
 
   if (wsInstance) {
     wsInstance.removeAllListeners();
@@ -71,6 +79,26 @@ export async function connectWebSocket(handlers) {
       );
       reconnectDelay = 5000;
       wsInstance.send(JSON.stringify({ event: "auth", args: [token] }));
+
+      // Keep connection alive through silent NAT drops
+      missedPings = 0;
+      pingInterval = setInterval(() => {
+        if (wsInstance && wsInstance.readyState === WebSocket.OPEN) {
+          missedPings++;
+          if (missedPings > 2) {
+            console.warn(
+              "[Pterodactyl WS] Connection appears dead (missed pings). Terminating...",
+            );
+            wsInstance.terminate();
+            return;
+          }
+          wsInstance.ping();
+        }
+      }, 15000);
+    });
+
+    wsInstance.on("pong", () => {
+      missedPings = 0;
     });
 
     wsInstance.on("message", (data) => {
@@ -108,6 +136,7 @@ export async function connectWebSocket(handlers) {
             isCurrentlyHibernating = true;
           } else if (logLine.includes("MINECRAFT SERVER IS STARTING!")) {
             isCurrentlyHibernating = false;
+            intentionalShutdown = false;
           }
 
           if (!intentionalShutdown && !isAutoWaking) {

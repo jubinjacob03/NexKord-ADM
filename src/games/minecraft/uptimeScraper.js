@@ -96,6 +96,13 @@ export async function scrapeUptime() {
         const url = `https://panel.freegamehost.xyz/server/${uuid}`;
         await page.goto(url, { waitUntil: 'domcontentloaded' });
 
+        if (page.url().includes('/auth/login')) {
+            console.error('[UptimeScraper] Session expired! Redirected to login page. Please update FGH_SESSION_COOKIE.');
+            await browser.close();
+            isScraping = false;
+            return null;
+        }
+
         // Wait for the time string to appear
         await page.waitForFunction(() => {
             return document.body.innerText.match(/\b\d{2}:\d{2}:\d{2}\b/);

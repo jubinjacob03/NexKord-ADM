@@ -49,7 +49,7 @@
   "SERVER_MAGENTA": { "serverEmojiName": "iconServerMagentaOutlined", "fallback": "🟣" },
   "SCROLL_UP": { "serverEmojiName": "iconScrollUp", "fallback": "🔼" },
   "SCROLL_DOWN": { "serverEmojiName": "iconScrollDown", "fallback": "🔽" },
-  "TERMINAL": { "serverEmojiName": "iconAction", "fallback": "⌨️" },
+  "TERMINAL": { "serverEmojiName": "iconCmd", "fallback": "⌨️" },
   "PLAY": { "serverEmojiName": "r_play", "fallback": "▶️" },
   "PAUSE": { "serverEmojiName": "r_pause", "fallback": "⏸️" },
   "STOP": { "serverEmojiName": "r_stop", "fallback": "⏹️" },

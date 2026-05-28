@@ -26,6 +26,7 @@ export async function scrapeUptime() {
         browser = await puppeteerExtra.launch({
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
             headless: 'new',
+            timeout: 60000,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -36,6 +37,10 @@ export async function scrapeUptime() {
 
         const page = await browser.newPage();
         
+        // Increase the default navigation timeout globally
+        page.setDefaultNavigationTimeout(60000);
+        page.setDefaultTimeout(60000);
+
         // Block heavy resources to save RAM and bandwidth
         await page.setRequestInterception(true);
         page.on('request', (req) => {
@@ -75,7 +80,7 @@ export async function scrapeUptime() {
         // Wait for the time string to appear
         await page.waitForFunction(() => {
             return document.body.innerText.match(/\b\d{2}:\d{2}:\d{2}\b/);
-        }, { timeout: 15000 });
+        });
 
         const timeRemaining = await page.evaluate(() => {
             const bodyText = document.body.innerText;

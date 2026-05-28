@@ -63,6 +63,7 @@ export async function executeAutoRenew(client) {
         process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium-browser",
       userDataDir: userDataDir,
       headless: "new",
+      timeout: 60000,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -79,6 +80,8 @@ export async function executeAutoRenew(client) {
     });
 
     const page = await browser.newPage();
+    page.setDefaultNavigationTimeout(60000);
+    page.setDefaultTimeout(60000);
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     );

@@ -13,7 +13,12 @@ import {
   MediaGalleryBuilder,
   MediaGalleryItemBuilder,
 } from "discord.js";
-import { getServerStatus, setPowerState, sendCommand, getServerDetails } from "./pterodactyl.js";
+import {
+  getServerStatus,
+  setPowerState,
+  sendCommand,
+  getServerDetails,
+} from "./pterodactyl.js";
 import { logMinecraftConsole, auditLog } from "../../utils/logger.js";
 import { eReply } from "../../utils/embed.js";
 import { icon } from "../../utils/icons.js";
@@ -50,12 +55,12 @@ async function buildDashboardPayload(status = null) {
     ),
   );
   container.addMediaGalleryComponents(bannerGallery);
-  
+
   // Add server connection details
   const details = await getServerDetails();
   const connectionString = `**Server : ** \`${details.ip}\` \u00A0\u00A0 **Port : ** \`${details.port}\``;
   container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(connectionString)
+    new TextDisplayBuilder().setContent(connectionString),
   );
 
   if (consoleBuffer.length > 0) {
@@ -181,7 +186,7 @@ async function buildDashboardPayload(status = null) {
       new ButtonBuilder()
         .setCustomId("mc_send_cmd")
         .setEmoji(icon("TERMINAL"))
-        .setStyle(ButtonStyle.Primary),
+        .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId("mc_scroll_up")
         .setEmoji(icon("SCROLL_UP"))

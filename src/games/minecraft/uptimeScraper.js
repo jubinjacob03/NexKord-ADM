@@ -34,6 +34,7 @@ export async function scrapeUptime() {
     const scrapePromise = async () => {
         browser = await puppeteerExtra.launch({
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
+            userDataDir: '/tmp/puppeteer_uptime_data',
             headless: 'new',
             timeout: 60000,
             args: [
@@ -53,6 +54,9 @@ export async function scrapeUptime() {
 
         const page = await browser.newPage();
         
+        // Fix for "Requesting main frame too early!" race condition in stealth plugin on slow VPS
+        await new Promise(resolve => setTimeout(resolve, 5000));
+
         page.setDefaultNavigationTimeout(60000);
         page.setDefaultTimeout(60000);
 

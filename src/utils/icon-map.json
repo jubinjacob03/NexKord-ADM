@@ -41,37 +41,33 @@
   "HELP_WORLD": { "serverEmojiName": "iconWorld", "fallback": "🌐" },
   "HELP_GAMEPLAY": { "serverEmojiName": "iconGame", "fallback": "🎮" },
   "HELP_MSH": { "serverEmojiName": "iconCmd", "fallback": "🤖" },
-  "MICRO_BLUE": {
-    "serverEmojiName": "iconMicroBlueOutlined",
-    "fallback": "🔵"
-  },
-  "MICRO_YELLOW": {
-    "serverEmojiName": "iconMicroYellowOutlined",
-    "fallback": "🟡"
-  },
-  "MICRO_ORANGE": {
-    "serverEmojiName": "iconMicroOrangeOutlined",
-    "fallback": "🟠"
-  },
+  "MICRO_BLUE": { "serverEmojiName": "iconMicroBlueOutlined", "fallback": "🔵" },
+  "MICRO_YELLOW": { "serverEmojiName": "iconMicroYellowOutlined", "fallback": "🟡" },
+  "MICRO_ORANGE": { "serverEmojiName": "iconMicroOrangeOutlined", "fallback": "🟠" },
   "POWER_RED": { "serverEmojiName": "iconPowerRedOutlined", "fallback": "🔴" },
-  "POWER_GREEN": {
-    "serverEmojiName": "iconPowerGreenOutlined",
-    "fallback": "🟢"
-  },
-  "SERVER_MAGENTA": {
-    "serverEmojiName": "iconServerMagentaOutlined",
-    "fallback": "🟣"
-  },
-  "SCROLL_UP": {
-    "serverEmojiName": "iconScrollUp",
-    "fallback": "🔼"
-  },
-  "SCROLL_DOWN": {
-    "serverEmojiName": "iconScrollDown",
-    "fallback": "🔽"
-  },
-  "TERMINAL": {
-    "serverEmojiName": "iconAction",
-    "fallback": "⌨️"
-  }
+  "POWER_GREEN": { "serverEmojiName": "iconPowerGreenOutlined", "fallback": "🟢" },
+  "SERVER_MAGENTA": { "serverEmojiName": "iconServerMagentaOutlined", "fallback": "🟣" },
+  "SCROLL_UP": { "serverEmojiName": "iconScrollUp", "fallback": "🔼" },
+  "SCROLL_DOWN": { "serverEmojiName": "iconScrollDown", "fallback": "🔽" },
+  "TERMINAL": { "serverEmojiName": "iconAction", "fallback": "⌨️" },
+  "PLAY": { "serverEmojiName": "r_play", "fallback": "▶️" },
+  "PAUSE": { "serverEmojiName": "r_pause", "fallback": "⏸️" },
+  "STOP": { "serverEmojiName": "r_stop", "fallback": "⏹️" },
+  "SKIP": { "serverEmojiName": "r_skip", "fallback": "⏭️" },
+  "PREVIOUS": { "serverEmojiName": "r_previous", "fallback": "⏮️" },
+  "SHUFFLE": { "serverEmojiName": "r_shuffle", "fallback": "🔀" },
+  "LOOP": { "serverEmojiName": "r_loop", "fallback": "🔁" },
+  "LOOP_ONE": { "serverEmojiName": "r_loopone", "fallback": "🔂" },
+  "VOLUP": { "serverEmojiName": "r_volup", "fallback": "🔊" },
+  "VOLDOWN": { "serverEmojiName": "r_voldown", "fallback": "🔉" },
+  "QUEUE": { "serverEmojiName": "r_queue", "fallback": "📋" },
+  "HEADPHONES": { "serverEmojiName": "r_headphones", "fallback": "🎧" },
+  "AUTHOR": { "serverEmojiName": "r_author", "fallback": "🎤" },
+  "PLAYLIST": { "serverEmojiName": "r_playlist", "fallback": "📑" },
+  "YOUTUBE": { "serverEmojiName": "r_youtube", "fallback": "🔴" },
+  "SPOTIFY": { "serverEmojiName": "r_spotify", "fallback": "🟢" },
+  "INFO": { "serverEmojiName": "r_info", "fallback": "ℹ️" },
+  "REFRESH": { "serverEmojiName": "r_refresh", "fallback": "🔄" },
+  "USER": { "serverEmojiName": "r_user", "fallback": "👤" },
+  "TIME": { "serverEmojiName": "r_time", "fallback": "⏱️" }
 }

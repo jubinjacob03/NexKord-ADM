@@ -86,7 +86,6 @@ export async function executeAutoRenew(client) {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     );
 
-    // Inject session cookie to bypass login block
     await page.setCookie({
       name: "pterodactyl_session",
       value: sessionCookie,
@@ -96,11 +95,9 @@ export async function executeAutoRenew(client) {
       secure: true,
     });
 
-    // 1. Navigate to the server page
     const serverUrl = `https://panel.freegamehost.xyz/server/${uuid}`;
     await page.goto(serverUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-    // 2. Check if we got redirected to login
     if (page.url().includes("/auth/login")) {
       auditLog(
         "error",
@@ -121,19 +118,16 @@ export async function executeAutoRenew(client) {
       );
     }
 
-    // 3. Find and click the Renew button
     auditLog("info", "AUTORENEW", "Scanning for Renew button...");
 
-    // Wait a brief moment for React to hydrate
     await new Promise((r) => setTimeout(r, 3000));
 
-    // Intercept the API request to confirm success
     const renewResponsePromise = page.waitForResponse(
       (response) =>
         response.url().includes("/api/client/freeservers/") &&
         response.url().includes("/renew") &&
         response.request().method() === "POST",
-      { timeout: 45000 }, // Turnstile can take a few seconds
+      { timeout: 45000 },
     );
 
     const clicked = await page.evaluate(() => {
@@ -205,13 +199,10 @@ export async function executeAutoRenew(client) {
  * @param {import('discord.js').Client} client
  */
 export function startAutoRenewDaemon(client) {
-  // 6 hours in milliseconds
   const RENEWAL_INTERVAL = 6 * 60 * 60 * 1000;
 
-  // Initial run on startup (wait 30s to ensure everything else is initialized)
   setTimeout(() => executeAutoRenew(client), 30000);
 
-  // Schedule recurring runs
   setInterval(() => executeAutoRenew(client), RENEWAL_INTERVAL);
 
   auditLog(

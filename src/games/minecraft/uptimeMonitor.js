@@ -164,8 +164,6 @@ async function syncWithPuppeteer(cache) {
     `[UptimeMonitor] ✅ Scrape success: ${timeStr} (~${Math.floor(newMins)} mins)`,
   );
 
-  // Check if the user manually renewed the server (time jumped back up significantly)
-  // E.g., if we expected 120 mins but we see 500 mins, they renewed it.
   if (newMins > (cache.scrapedMins || 0) + 60) {
     console.log(
       "[UptimeMonitor] 🔄 Time replenished (Manual Renewal detected)! Resetting states.",
@@ -182,32 +180,26 @@ async function syncWithPuppeteer(cache) {
 async function checkTick(client) {
   let cache = readCache();
 
-  // 1. Calculate Estimated Time
   const minutesSinceLastCheck = (Date.now() - cache.lastChecked) / 60000;
   let estimatedMins = cache.scrapedMins - minutesSinceLastCheck;
 
-  // Force an initial sync if the cache is empty or super old (e.g. bot was offline for 24h)
   if (!cache.lastChecked || estimatedMins < -100 || estimatedMins > 1000) {
     cache = await syncWithPuppeteer(cache);
     writeCache(cache);
     return;
   }
 
-  // Sort thresholds from lowest (0) to highest (120)
   const sortedThresholds = [...THRESHOLDS].sort((a, b) => a.mins - b.mins);
 
-  // 2. Determine if we need to Sync (launch Puppeteer 5 mins BEFORE a threshold)
   for (const t of sortedThresholds) {
     const syncLimit = t.mins + 5;
     if (estimatedMins <= syncLimit && !cache.syncs[t.name]) {
-      // We are within 5 mins of this threshold, and haven't synced for it yet.
       console.log(
         `[UptimeMonitor] Estimated time (~${Math.floor(estimatedMins)}m) is approaching the ${t.name} threshold.`,
       );
 
       cache = await syncWithPuppeteer(cache);
 
-      // Mark this threshold and all HIGHER thresholds as synced
       for (const upper of THRESHOLDS) {
         if (upper.mins >= t.mins) {
           cache.syncs[upper.name] = true;
@@ -215,19 +207,16 @@ async function checkTick(client) {
       }
       writeCache(cache);
 
-      // Recalculate estimated mins with the fresh data
       estimatedMins = cache.scrapedMins;
       break;
     }
   }
 
-  // 3. Determine if we need to Alert (if estimated time crosses the exact threshold)
   for (const t of sortedThresholds) {
     if (estimatedMins <= t.mins) {
       if (!cache.alerts[t.name]) {
         await sendAlert(client, t, estimatedMins);
 
-        // Mark this and all HIGHER thresholds as alerted
         for (const upper of THRESHOLDS) {
           if (upper.mins >= t.mins) {
             cache.alerts[upper.name] = true;
@@ -240,15 +229,17 @@ async function checkTick(client) {
   }
 }
 
+/**
+ * Initializes the uptime monitoring system, checking remaining server time
+ * and sending alerts when approaching thresholds.
+ * @param {import('discord.js').Client} client 
+ */
 export function initUptimeMonitor(client) {
   console.log(
     "[UptimeMonitor] Initialized Time-Decay Cache. Math ticks every 1 minute.",
   );
   ensureCacheDir();
 
-  // Check after 5 seconds to bootstrap if needed
   setTimeout(() => checkTick(client), 5000);
-
-  // Tick every 60 seconds
   setInterval(() => checkTick(client), 60000);
 }

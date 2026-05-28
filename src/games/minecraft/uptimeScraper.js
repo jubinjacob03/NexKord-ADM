@@ -24,8 +24,6 @@ export async function scrapeUptime() {
 
     isScraping = true;
     try {
-        // 1. We need the full UUID, but .env usually has the short identifier. 
-        // Let's dynamically fetch the full UUID from the Pterodactyl API first.
         const serverRes = await axios.get(`https://panel.freegamehost.xyz/api/client/servers/${uuid}`, {
             headers: {
                 Authorization: `Bearer ${apiKey}`,
@@ -36,7 +34,6 @@ export async function scrapeUptime() {
         
         const fullUuid = serverRes.data.attributes.uuid;
 
-        // 2. Fetch the FreeGameHost internal timer API directly
         const infoRes = await axios.get(`https://panel.freegamehost.xyz/api/client/freeservers/${fullUuid}/info`, {
             headers: {
                 Authorization: `Bearer ${apiKey}`,
@@ -52,7 +49,6 @@ export async function scrapeUptime() {
             return null;
         }
 
-        // 3. Calculate remaining time
         const msRemaining = Math.max(0, expireTimestamp - Date.now());
         const hours = Math.floor(msRemaining / (1000 * 60 * 60));
         const minutes = Math.floor((msRemaining % (1000 * 60 * 60)) / (1000 * 60));

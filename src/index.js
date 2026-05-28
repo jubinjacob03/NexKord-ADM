@@ -66,6 +66,10 @@ process.on("uncaughtException", (err) => {
 
 client.login(process.env.DISCORD_TOKEN);
 
+/**
+ * Handles graceful shutdown of the NexKord-ADM client.
+ * Destroys the client and exits the process.
+ */
 const shutdown = () => {
   console.log("[NexKord - ADM] Shutting down gracefully...");
   client.destroy();

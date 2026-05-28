@@ -70,7 +70,6 @@ export async function executeAutoRenew(client) {
         "--disable-accelerated-2d-canvas",
         "--no-first-run",
         "--no-zygote",
-        "--single-process",
         "--disable-gpu",
         "--mute-audio",
         "--disable-extensions",
@@ -96,7 +95,7 @@ export async function executeAutoRenew(client) {
 
     // 1. Navigate to the server page
     const serverUrl = `https://panel.freegamehost.xyz/server/${uuid}`;
-    await page.goto(serverUrl, { waitUntil: "networkidle2", timeout: 30000 });
+    await page.goto(serverUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
 
     // 2. Check if we got redirected to login
     if (page.url().includes("/auth/login")) {

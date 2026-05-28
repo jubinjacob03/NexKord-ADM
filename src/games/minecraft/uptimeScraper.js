@@ -30,8 +30,7 @@ export async function scrapeUptime() {
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--single-process' // Very low RAM usage
+                '--disable-gpu'
             ]
         });
 
@@ -71,7 +70,7 @@ export async function scrapeUptime() {
         await page.setCookie(...cookies);
         
         const url = `https://panel.freegamehost.xyz/server/${uuid}`;
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
         // Wait for the time string to appear
         await page.waitForFunction(() => {

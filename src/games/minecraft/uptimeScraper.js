@@ -24,7 +24,7 @@ export async function scrapeUptime() {
     let browser = null;
     try {
         browser = await puppeteerExtra.launch({
-            executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
             headless: 'new',
             args: [
                 '--no-sandbox',

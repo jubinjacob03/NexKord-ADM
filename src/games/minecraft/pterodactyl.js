@@ -33,7 +33,6 @@ export let intentionalShutdown = false;
 export let isCurrentlyHibernating = false;
 let isAutoWaking = false;
 
-// Aggressive periodic watchdog: unconditionally blasts the server awake if it gets stuck asleep.
 setInterval(() => {
   if (isCurrentlyHibernating && !intentionalShutdown) {
     console.log(
@@ -80,7 +79,6 @@ export async function connectWebSocket(handlers) {
       reconnectDelay = 5000;
       wsInstance.send(JSON.stringify({ event: "auth", args: [token] }));
 
-      // Keep connection alive through silent NAT drops
       missedPings = 0;
       pingInterval = setInterval(() => {
         if (wsInstance && wsInstance.readyState === WebSocket.OPEN) {
@@ -246,12 +244,13 @@ let cachedServerDetails = null;
  */
 export async function getServerDetails() {
   if (cachedServerDetails) return cachedServerDetails;
-  
+
   try {
     const response = await apiClient.get("");
     const allocs = response.data.attributes.relationships?.allocations?.data;
     if (allocs && allocs.length > 0) {
-      const defaultAlloc = allocs.find(a => a.attributes.is_default) || allocs[0];
+      const defaultAlloc =
+        allocs.find((a) => a.attributes.is_default) || allocs[0];
       const ip = defaultAlloc.attributes.ip_alias || defaultAlloc.attributes.ip;
       const port = defaultAlloc.attributes.port;
       cachedServerDetails = { ip, port };
@@ -259,7 +258,10 @@ export async function getServerDetails() {
     }
     return { ip: "Unknown", port: "0000" };
   } catch (error) {
-    console.error("[Pterodactyl] Failed to fetch server details:", error.message);
+    console.error(
+      "[Pterodactyl] Failed to fetch server details:",
+      error.message,
+    );
     return { ip: "Unknown", port: "0000" };
   }
 }

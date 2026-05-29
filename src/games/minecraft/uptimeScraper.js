@@ -1,5 +1,5 @@
-import axios from 'axios';
-import dotenv from 'dotenv';
+import axios from "axios";
+import dotenv from "dotenv";
 dotenv.config();
 
 let isScraping = false;
@@ -9,63 +9,74 @@ let isScraping = false;
  * Returns the time string (e.g., "01:30:45") or null on failure.
  */
 export async function scrapeUptime() {
-    if (isScraping) {
-        console.log('[UptimeScraper] Scrape already in progress. Skipping...');
-        return null;
+  if (isScraping) {
+    console.log("[UptimeScraper] Scrape already in progress. Skipping...");
+    return null;
+  }
+
+  const uuid = process.env.FREEGAMEHOST_SERVER_UUID;
+  const apiKey = process.env.PTERODACTYL_API_KEY;
+
+  if (!uuid || !apiKey) {
+    console.error(
+      "[UptimeScraper] Missing PTERODACTYL_API_KEY or FREEGAMEHOST_SERVER_UUID in .env!",
+    );
+    return null;
+  }
+
+  isScraping = true;
+  try {
+    const serverRes = await axios.get(
+      `https://panel.freegamehost.xyz/api/client/servers/${uuid}`,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: "application/json",
+        },
+        timeout: 10000,
+      },
+    );
+
+    const fullUuid = serverRes.data.attributes.uuid;
+
+    const infoRes = await axios.get(
+      `https://panel.freegamehost.xyz/api/client/freeservers/${fullUuid}/info`,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: "application/json",
+        },
+        timeout: 10000,
+      },
+    );
+
+    const expireTimestamp = infoRes.data.data.expire;
+    if (!expireTimestamp) {
+      console.error(
+        "[UptimeScraper] Could not find expire timestamp in API response.",
+      );
+      isScraping = false;
+      return null;
     }
 
-    const uuid = process.env.FREEGAMEHOST_SERVER_UUID;
-    const apiKey = process.env.PTERODACTYL_API_KEY;
+    const msRemaining = Math.max(0, expireTimestamp - Date.now());
+    const hours = Math.floor(msRemaining / (1000 * 60 * 60));
+    const minutes = Math.floor((msRemaining % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((msRemaining % (1000 * 60)) / 1000);
 
-    if (!uuid || !apiKey) {
-        console.error('[UptimeScraper] Missing PTERODACTYL_API_KEY or FREEGAMEHOST_SERVER_UUID in .env!');
-        return null;
+    const timeStr = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+
+    isScraping = false;
+    return timeStr;
+  } catch (error) {
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      console.error(
+        "[UptimeScraper] API Key rejected (401/403)! Please check your PTERODACTYL_API_KEY.",
+      );
+    } else {
+      console.error(`[UptimeScraper] API Error: ${error.message}`);
     }
-
-    isScraping = true;
-    try {
-        const serverRes = await axios.get(`https://panel.freegamehost.xyz/api/client/servers/${uuid}`, {
-            headers: {
-                Authorization: `Bearer ${apiKey}`,
-                Accept: 'application/json'
-            },
-            timeout: 10000
-        });
-        
-        const fullUuid = serverRes.data.attributes.uuid;
-
-        const infoRes = await axios.get(`https://panel.freegamehost.xyz/api/client/freeservers/${fullUuid}/info`, {
-            headers: {
-                Authorization: `Bearer ${apiKey}`,
-                Accept: 'application/json'
-            },
-            timeout: 10000
-        });
-
-        const expireTimestamp = infoRes.data.data.expire;
-        if (!expireTimestamp) {
-            console.error('[UptimeScraper] Could not find expire timestamp in API response.');
-            isScraping = false;
-            return null;
-        }
-
-        const msRemaining = Math.max(0, expireTimestamp - Date.now());
-        const hours = Math.floor(msRemaining / (1000 * 60 * 60));
-        const minutes = Math.floor((msRemaining % (1000 * 60 * 60)) / (1000 * 60));
-        const seconds = Math.floor((msRemaining % (1000 * 60)) / 1000);
-
-        const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-        
-        isScraping = false;
-        return timeStr;
-
-    } catch (error) {
-        if (error.response?.status === 401 || error.response?.status === 403) {
-            console.error('[UptimeScraper] API Key rejected (401/403)! Please check your PTERODACTYL_API_KEY.');
-        } else {
-            console.error(`[UptimeScraper] API Error: ${error.message}`);
-        }
-        isScraping = false;
-        return null;
-    }
+    isScraping = false;
+    return null;
+  }
 }

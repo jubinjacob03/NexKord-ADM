@@ -56,7 +56,6 @@ async function buildDashboardPayload(status = null) {
   );
   container.addMediaGalleryComponents(bannerGallery);
 
-  // Add server connection details
   const details = await getServerDetails();
   const connectionString = `${icon("HELP_WORLD")} **SERVER : ** \`${details.ip}\` \u00A0\u00A0 ${icon("MC_ADDRESS")} **PORT : ** \`${details.port}\``;
   container.addTextDisplayComponents(

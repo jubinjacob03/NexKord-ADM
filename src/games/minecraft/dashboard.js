@@ -58,7 +58,7 @@ async function buildDashboardPayload(status = null) {
 
   // Add server connection details
   const details = await getServerDetails();
-  const connectionString = `**Server : ** \`${details.ip}\` \u00A0\u00A0 **Port : ** \`${details.port}\``;
+  const connectionString = `**SERVER : ** \`${details.ip}\` \u00A0\u00A0 **PORT : ** \`${details.port}\``;
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(connectionString),
   );

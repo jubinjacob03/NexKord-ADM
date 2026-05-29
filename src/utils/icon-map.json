@@ -39,6 +39,7 @@
   "HELP_HEADER": { "serverEmojiName": "iconHelpHeader", "fallback": "📖" },
   "HELP_ADMIN": { "serverEmojiName": "iconProtect", "fallback": "🛡️" },
   "HELP_WORLD": { "serverEmojiName": "iconWorld", "fallback": "🌐" },
+  "MC_ADDRESS": { "serverEmojiName": "mc_address","fallback": "🔗"},
   "HELP_GAMEPLAY": { "serverEmojiName": "iconGame", "fallback": "🎮" },
   "HELP_MSH": { "serverEmojiName": "iconCmd", "fallback": "🤖" },
   "MICRO_BLUE": { "serverEmojiName": "iconMicroBlueOutlined", "fallback": "🔵" },

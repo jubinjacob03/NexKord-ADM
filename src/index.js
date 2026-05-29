@@ -1,4 +1,4 @@
-import { Client, Events, GatewayIntentBits } from "discord.js";
+import { Client, Events, GatewayIntentBits, ActivityType } from "discord.js";
 import dotenv from "dotenv";
 import { initBotLogger } from "./utils/logger.js";
 import {
@@ -13,6 +13,31 @@ import { handleSlashCommand } from "./commands.js";
 import { initIcons } from "./utils/icons.js";
 
 dotenv.config();
+
+const idlePhrases = [
+  "🟢 holding the uptime",
+  "🧊 cooling the CPU",
+  "⛏️ deep in the mines",
+  "☕ brewing potions",
+  "🧱 stacking blocks",
+  "🌙 surviving the night",
+  "🔥 keeping the TPS high",
+  "🌌 floating in the void",
+  "💣 planting the bomb",
+  "💫 surviving the red zone",
+  "🎒 looting the airdrop",
+  "🛠️ faking tasks",
+  "🔌 fixing wiring",
+  "🍀 checking the cams",
+];
+
+const setRandomPresence = (client) => {
+  const phrase = idlePhrases[Math.floor(Math.random() * idlePhrases.length)];
+  client.user.setPresence({
+    activities: [{ name: phrase, type: ActivityType.Custom }],
+    status: "online",
+  });
+};
 
 initBotLogger();
 
@@ -41,6 +66,9 @@ client.once(Events.ClientReady, async (readyClient) => {
   });
 
   initUptimeMonitor(client);
+
+  setRandomPresence(readyClient);
+  setInterval(() => setRandomPresence(readyClient), 300000);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

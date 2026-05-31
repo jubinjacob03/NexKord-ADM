@@ -10,6 +10,7 @@ import {
   MessageFlags,
 } from "discord.js";
 import { icon, emojiObj } from "../../utils/icons.js";
+import { generateArray } from "./limits.js";
 
 const COLORS = {
   PRIMARY: 0x00ffff,
@@ -356,7 +357,7 @@ function buildConfigurationSummary(container, state) {
   const tbuMap = { 0: "Always", 1: "Meetings", 2: "Never" };
   const visualVal = `: ${state.visualTasks === 1 ? "On" : "Off"}`;
   const visualPadded =
-    visualVal + "\u00A0".repeat(state.visualTasks === 1 ? 12 : 11); // Pull to left slightly
+    visualVal + "\u00A0".repeat(state.visualTasks === 1 ? 12 : 11);
 
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
@@ -478,7 +479,7 @@ function buildCategoryControls(container, state) {
             .setCustomId("au_build_spd")
             .setPlaceholder("Player Speed")
             .addOptions(
-              [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0].map((n) => ({
+              generateArray("playerSpeed").map((n) => ({
                 label: `${n}x Speed`,
                 value: n.toString(),
                 default: state.playerSpeed === n,
@@ -490,10 +491,68 @@ function buildCategoryControls(container, state) {
             .setCustomId("au_build_cd")
             .setPlaceholder("Kill Cooldown")
             .addOptions(
-              [10, 15, 20, 22.5, 25, 27.5, 30, 35, 40, 45, 50, 60].map((n) => ({
+              generateArray("killCooldown").map((n) => ({
                 label: `${n}s Cooldown`,
                 value: n.toString(),
                 default: state.killCooldown === n,
+              })),
+            ),
+        ),
+      );
+
+      container.addSeparatorComponents(
+        new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small),
+      );
+
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`### Meetings & Times`),
+      );
+      container.addActionRowComponents(
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("au_build_meet")
+            .setPlaceholder("Emergency Meetings")
+            .addOptions(
+              generateArray("emergencyMeetings").map((n) => ({
+                label: `${n} Meeting${n !== 1 ? "s" : ""}`,
+                value: n.toString(),
+                default: state.emergencyMeetings === n,
+              })),
+            ),
+        ),
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("au_build_mcd")
+            .setPlaceholder("Emergency Cooldown")
+            .addOptions(
+              generateArray("emergencyCooldown").map((n) => ({
+                label: `${n}s Cooldown`,
+                value: n.toString(),
+                default: state.emergencyCooldown === n,
+              })),
+            ),
+        ),
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("au_build_disc")
+            .setPlaceholder("Discussion Time")
+            .addOptions(
+              generateArray("discussionTime").map((n) => ({
+                label: `${n}s Discussion`,
+                value: n.toString(),
+                default: state.discussionTime === n,
+              })),
+            ),
+        ),
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("au_build_vote")
+            .setPlaceholder("Voting Time")
+            .addOptions(
+              generateArray("votingTime").map((n) => ({
+                label: `${n}s Voting`,
+                value: n.toString(),
+                default: state.votingTime === n,
               })),
             ),
         ),
@@ -554,7 +613,7 @@ function buildCategoryControls(container, state) {
             .setCustomId("au_build_cv")
             .setPlaceholder("Crewmate Vision")
             .addOptions(
-              [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 5.0].map((n) => ({
+              generateArray("crewVision").map((n) => ({
                 label: `${n}x Crew Vision`,
                 value: n.toString(),
                 emoji: emojiObj("MEMBERS"),
@@ -567,7 +626,7 @@ function buildCategoryControls(container, state) {
             .setCustomId("au_build_iv")
             .setPlaceholder("Impostor Vision")
             .addOptions(
-              [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 5.0].map((n) => ({
+              generateArray("impVision").map((n) => ({
                 label: `${n}x Imp Vision`,
                 value: n.toString(),
                 emoji: emojiObj("AU_IMPOSTOR"),
@@ -588,7 +647,7 @@ function buildCategoryControls(container, state) {
             .setCustomId("au_build_tcom")
             .setPlaceholder("Common Tasks")
             .addOptions(
-              [0, 1, 2].map((n) => ({
+              generateArray("commonTasks").map((n) => ({
                 label: `${n} Common Task${n !== 1 ? "s" : ""}`,
                 value: n.toString(),
                 default: state.commonTasks === n,
@@ -600,7 +659,7 @@ function buildCategoryControls(container, state) {
             .setCustomId("au_build_tlng")
             .setPlaceholder("Long Tasks")
             .addOptions(
-              [0, 1, 2, 3].map((n) => ({
+              generateArray("longTasks").map((n) => ({
                 label: `${n} Long Task${n !== 1 ? "s" : ""}`,
                 value: n.toString(),
                 default: state.longTasks === n,
@@ -612,7 +671,7 @@ function buildCategoryControls(container, state) {
             .setCustomId("au_build_tsht")
             .setPlaceholder("Short Tasks")
             .addOptions(
-              [0, 1, 2, 3, 4, 5].map((n) => ({
+              generateArray("shortTasks").map((n) => ({
                 label: `${n} Short Task${n !== 1 ? "s" : ""}`,
                 value: n.toString(),
                 default: state.shortTasks === n,

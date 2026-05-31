@@ -37,6 +37,10 @@ const DEFAULT_STATE = Object.freeze({
   crewVision: 1.0,
   impVision: 1.5,
   killCooldown: 25.0,
+  emergencyMeetings: 1,
+  emergencyCooldown: 15,
+  discussionTime: 15,
+  votingTime: 120,
   commonTasks: 1,
   longTasks: 1,
   shortTasks: 2,
@@ -202,6 +206,10 @@ async function createAndAnnounceLobby(interaction, presetName, presetData) {
           crewLightMod: presetData.crewVision || 1.0,
           impostorLightMod: presetData.impVision || 1.5,
           killCooldown: presetData.killCooldown,
+          emergencyMeetings: presetData.emergencyMeetings || 1,
+          emergencyCooldown: presetData.emergencyCooldown || 15,
+          discussionTime: presetData.discussionTime || 15,
+          votingTime: presetData.votingTime || 120,
           numCommonTasks: presetData.commonTasks || 1,
           numLongTasks: presetData.longTasks || 1,
           numShortTasks: presetData.shortTasks || 2,
@@ -532,6 +540,10 @@ async function handleModalSubmit(interaction) {
       crewVision: state.crewVision,
       impVision: state.impVision,
       killCooldown: state.killCooldown,
+      emergencyMeetings: state.emergencyMeetings,
+      emergencyCooldown: state.emergencyCooldown,
+      discussionTime: state.discussionTime,
+      votingTime: state.votingTime,
       commonTasks: state.commonTasks,
       longTasks: state.longTasks,
       shortTasks: state.shortTasks,
@@ -615,6 +627,17 @@ async function handleSelectMenu(interaction) {
     try {
       const rawValue = interaction.values[0];
 
+      const BUILDER_STATE_MAP = {
+        au_build_imp: "impostors", au_build_ply: "maxPlayers", au_build_map: "mapId",
+        au_build_spd: "playerSpeed", au_build_cv: "crewVision", au_build_iv: "impVision",
+        au_build_cd: "killCooldown", au_build_meet: "emergencyMeetings", au_build_mcd: "emergencyCooldown",
+        au_build_disc: "discussionTime", au_build_vote: "votingTime", au_build_tcom: "commonTasks",
+        au_build_tlng: "longTasks", au_build_tsht: "shortTasks", au_build_ss: "shapeshifters",
+        au_build_phantom: "phantoms", au_build_viper: "vipers", au_build_sci: "scientists",
+        au_build_eng: "engineers", au_build_ga: "angels", au_build_noise: "noisemakers",
+        au_build_tracker: "trackers", au_build_det: "detectives"
+      };
+
       if (customId === "au_build_category") {
         state.category = rawValue;
       } else {
@@ -622,29 +645,17 @@ async function handleSelectMenu(interaction) {
         if (isNaN(value)) {
           throw new Error("Invalid value selected");
         }
-        if (customId === "au_build_imp") state.impostors = value;
-        else if (customId === "au_build_ply") state.maxPlayers = value;
-        else if (customId === "au_build_map") state.mapId = value;
-        else if (customId === "au_build_spd") state.playerSpeed = value;
-        else if (customId === "au_build_cv") state.crewVision = value;
-        else if (customId === "au_build_iv") state.impVision = value;
-        else if (customId === "au_build_cd") state.killCooldown = value;
-        else if (customId === "au_build_tcom") state.commonTasks = value;
-        else if (customId === "au_build_tlng") state.longTasks = value;
-        else if (customId === "au_build_tsht") state.shortTasks = value;
-        else if (customId === "au_build_ss") state.shapeshifters = value;
-        else if (customId === "au_build_phantom") state.phantoms = value;
-        else if (customId === "au_build_viper") state.vipers = value;
-        else if (customId === "au_build_sci") state.scientists = value;
-        else if (customId === "au_build_eng") state.engineers = value;
-        else if (customId === "au_build_ga") state.angels = value;
-        else if (customId === "au_build_noise") state.noisemakers = value;
-        else if (customId === "au_build_tracker") state.trackers = value;
-        else if (customId === "au_build_det") state.detectives = value;
-        else if (customId === "au_build_anon") state.anonymousVotes = parseInt(value, 10);
-        else if (customId === "au_build_conf") state.confirmImpostor = parseInt(value, 10);
-        else if (customId === "au_build_vis") state.visualTasks = parseInt(value, 10);
-        else if (customId === "au_build_tbar") state.taskBarUpdate = parseInt(value, 10);
+        if (BUILDER_STATE_MAP[customId]) {
+          state[BUILDER_STATE_MAP[customId]] = value;
+        } else if (customId === "au_build_anon") {
+          state.anonymousVotes = parseInt(value, 10);
+        } else if (customId === "au_build_conf") {
+          state.confirmImpostor = parseInt(value, 10);
+        } else if (customId === "au_build_vis") {
+          state.visualTasks = parseInt(value, 10);
+        } else if (customId === "au_build_tbar") {
+          state.taskBarUpdate = parseInt(value, 10);
+        }
       }
 
       state.lastActivity = Date.now();

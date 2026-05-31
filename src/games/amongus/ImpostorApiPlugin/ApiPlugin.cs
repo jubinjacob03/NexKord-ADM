@@ -114,6 +114,11 @@ namespace ImpostorApiPlugin
                         options.NumCommonTasks = request.NumCommonTasks;
                         options.NumLongTasks = request.NumLongTasks;
                         options.NumShortTasks = request.NumShortTasks;
+                        
+                        options.NumEmergencyMeetings = request.NumEmergencyMeetings;
+                        options.EmergencyCooldown = request.EmergencyCooldown;
+                        options.DiscussionTime = request.DiscussionTime;
+                        options.VotingTime = request.VotingTime;
 
                         options.AnonymousVotes = request.AnonymousVotes;
                         options.ConfirmImpostor = request.ConfirmImpostor;
@@ -217,6 +222,11 @@ namespace ImpostorApiPlugin
         public int NumCommonTasks { get; set; }
         public int NumLongTasks { get; set; }
         public int NumShortTasks { get; set; }
+
+        public int NumEmergencyMeetings { get; set; }
+        public int EmergencyCooldown { get; set; }
+        public int DiscussionTime { get; set; }
+        public int VotingTime { get; set; }
 
         public bool AnonymousVotes { get; set; }
         public bool ConfirmImpostor { get; set; }

@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Impostor.Api.Games.Managers;
 using Impostor.Api.Innersloth;
 using Impostor.Api.Innersloth.GameOptions;
+using Impostor.Api.Innersloth.GameOptions.RoleOptions;
 
 namespace ImpostorApiPlugin
 {
@@ -99,10 +100,34 @@ namespace ImpostorApiPlugin
                     var body = await reader.ReadToEndAsync();
                     var request = JsonSerializer.Deserialize<CreateLobbyRequest>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-                    var options = new NormalGameOptions(7);
+                    var options = new NormalGameOptions();
                     options.MaxPlayers = request?.MaxPlayers > 0 ? request.MaxPlayers : (byte)15;
                     options.NumImpostors = request?.ImpostorCount > 0 ? request.ImpostorCount : (byte)2;
                     options.Map = (MapTypes)(request?.MapId ?? 0);
+                    
+                    if (request?.PlayerSpeedMod > 0) options.PlayerSpeedMod = request.PlayerSpeedMod;
+                    if (request?.CrewLightMod > 0) options.CrewLightMod = request.CrewLightMod;
+                    if (request?.ImpostorLightMod > 0) options.ImpostorLightMod = request.ImpostorLightMod;
+                    if (request?.KillCooldown > 0) options.KillCooldown = request.KillCooldown;
+
+                    if (request != null) {
+                        options.NumCommonTasks = request.NumCommonTasks;
+                        options.NumLongTasks = request.NumLongTasks;
+                        options.NumShortTasks = request.NumShortTasks;
+
+                        // Impostor Roles
+                        SetRoleCount(options.RoleOptions, RoleTypes.Shapeshifter, request.ShapeshifterCount);
+                        SetRoleCount(options.RoleOptions, RoleTypes.Phantom, request.PhantomCount);
+                        SetRoleCount(options.RoleOptions, RoleTypes.Viper, request.ViperCount);
+
+                        // Crewmate Roles
+                        SetRoleCount(options.RoleOptions, RoleTypes.Scientist, request.ScientistCount);
+                        SetRoleCount(options.RoleOptions, RoleTypes.Engineer, request.EngineerCount);
+                        SetRoleCount(options.RoleOptions, RoleTypes.GuardianAngel, request.GuardianAngelCount);
+                        SetRoleCount(options.RoleOptions, RoleTypes.Noisemaker, request.NoisemakerCount);
+                        SetRoleCount(options.RoleOptions, RoleTypes.Tracker, request.TrackerCount);
+                        SetRoleCount(options.RoleOptions, RoleTypes.Detective, request.DetectiveCount);
+                    }
 
                     var game = await _gameManager.CreateAsync(options, new Impostor.Api.Innersloth.GameFilterOptions());
 
@@ -129,6 +154,35 @@ namespace ImpostorApiPlugin
                 context.Response.Close();
             }
         }
+
+        private static void SetRoleCount(RoleOptionsCollection roleOptions, RoleTypes roleType, byte count)
+        {
+            if (count <= 0) return;
+
+            var options = CreateRoleOptions(roleType, roleOptions.Version);
+            roleOptions.Roles[roleType] = new RoleOptionsCollection.RoleData(
+                roleType,
+                options,
+                new RoleRate(count, 100)
+            );
+        }
+
+        private static IRoleOptions CreateRoleOptions(RoleTypes roleType, byte version)
+        {
+            return roleType switch
+            {
+                RoleTypes.Shapeshifter => new ShapeshifterRoleOptions(version),
+                RoleTypes.Scientist => new ScientistRoleOptions(version),
+                RoleTypes.Engineer => new EngineerRoleOptions(version),
+                RoleTypes.GuardianAngel => new GuardianAngelRoleOptions(version),
+                RoleTypes.Noisemaker => new NoisemakerRoleOptions(version),
+                RoleTypes.Phantom => new PhantomRoleOptions(version),
+                RoleTypes.Tracker => new TrackerRoleOptions(version),
+                RoleTypes.Detective => new DetectiveRoleOptions(version),
+                RoleTypes.Viper => new ViperRoleOptions(version),
+                _ => throw new ArgumentOutOfRangeException(nameof(roleType), roleType, null),
+            };
+        }
     }
 
     /// <summary>
@@ -150,5 +204,26 @@ namespace ImpostorApiPlugin
         /// Map ID: 0 = The Skeld, 1 = Mira HQ, 2 = Polus, 3 = Airship, 4 = The Fungle.
         /// </summary>
         public byte MapId { get; set; }
+
+        public float PlayerSpeedMod { get; set; }
+        public float CrewLightMod { get; set; }
+        public float ImpostorLightMod { get; set; }
+        public float KillCooldown { get; set; }
+        public int NumCommonTasks { get; set; }
+        public int NumLongTasks { get; set; }
+        public int NumShortTasks { get; set; }
+
+        // Impostor Roles
+        public byte ShapeshifterCount { get; set; }
+        public byte PhantomCount { get; set; }
+        public byte ViperCount { get; set; }
+
+        // Crewmate Roles
+        public byte ScientistCount { get; set; }
+        public byte EngineerCount { get; set; }
+        public byte GuardianAngelCount { get; set; }
+        public byte NoisemakerCount { get; set; }
+        public byte TrackerCount { get; set; }
+        public byte DetectiveCount { get; set; }
     }
 }

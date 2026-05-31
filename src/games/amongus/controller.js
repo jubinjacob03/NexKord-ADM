@@ -1,4 +1,4 @@
-import { createImpostorLobby } from "./impostor.js";
+import { createImpostorLobby, presets } from "./impostor.js";
 import { auditLog } from "../../utils/logger.js";
 import { buildV2Container } from "../../utils/embed.js";
 import { icon } from "../../utils/icons.js";
@@ -49,6 +49,10 @@ const DEFAULT_STATE = Object.freeze({
   noisemakers: 0,
   trackers: 0,
   detectives: 0,
+  anonymousVotes: 0,
+  confirmImpostor: 1,
+  visualTasks: 1,
+  taskBarUpdate: 1,
 });
 
 /**
@@ -210,6 +214,10 @@ async function createAndAnnounceLobby(interaction, presetName, presetData) {
           noisemakerCount: presetData.noisemakers || 0,
           trackerCount: presetData.trackers || 0,
           detectiveCount: presetData.detectives || 0,
+          anonymousVotes: presetData.anonymousVotes !== undefined ? presetData.anonymousVotes : false,
+          confirmImpostor: presetData.confirmImpostor !== undefined ? presetData.confirmImpostor : true,
+          visualTasks: presetData.visualTasks !== undefined ? presetData.visualTasks : true,
+          taskBarUpdate: presetData.taskBarUpdate !== undefined ? presetData.taskBarUpdate : 1,
         },
         {
           headers: { Authorization: `Bearer ${IMPOSTOR_API_KEY}` },
@@ -243,8 +251,10 @@ async function createAndAnnounceLobby(interaction, presetName, presetData) {
     }
 
     logAmongUsConsole(
-      `Room Created | Preset: [1;33m${presetName.toUpperCase()}[0m | Code: [1;32m${code}[0m`
+      `Room Created | Preset: \u001b[1;33m${presetName.toUpperCase()}\u001b[0m | Code: \u001b[1;32m${code}\u001b[0m`
     );
+
+    auditLog("info", "AMONGUS_LOBBY_CREATED", `Lobby ${code} created via preset '${presetName}' by ${interaction.user.tag}`);
 
     const targetChannelId = process.env.AMONGUS_ANNOUNCE_CHANNEL_ID || "1506836961263095931";
     const pingRoleId = process.env.AMONGUS_PING_ROLE_ID || "1510515943103664218";
@@ -268,6 +278,8 @@ async function createAndAnnounceLobby(interaction, presetName, presetData) {
           components: [publicContainer],
           flags: MessageFlags.IsComponentsV2,
         });
+        
+        auditLog("info", "AMONGUS_LOBBY_ANNOUNCED", `Announced lobby ${code} to channel ${targetChannelId}`);
       }
     } catch (channelError) {
       auditLog("error", "AMONGUS", `Failed to announce lobby: ${channelError.message}`);
@@ -373,9 +385,12 @@ async function handleButtonInteraction(interaction) {
   if (customId === "au_reset") {
     const payload = buildSuccessUI(
         "Reset to Official Servers",
-        `**How to reset your game back to official servers:**\n\n` +
-          `1. Open Among Us.\n2. Click on **Online**.\n3. In the bottom right corner, click the **Globe Icon**.\n` +
-          `4. Select **North America**, **Europe**, or **Asia**.\n\nYour game is now disconnected from NexKord!`
+        `### How to reset your game back to official servers:\n\n` +
+          `### \` 1 \` Open Among Us.\n` +
+          `### \` 2 \` Click on **Online**.\n` +
+          `### \` 3 \` In the bottom right corner, click the **Globe Icon**.\n` +
+          `### \` 4 \` Select **North America**, **Europe**, or **Asia**.\n\n` +
+          `### Your game is now disconnected from NexKord!`
       );
     await safeRespond(interaction, payload, isFromEphemeral(interaction));
     return true;
@@ -454,7 +469,7 @@ async function handleButtonInteraction(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
-      const presetData = { impostors: 2, maxPlayers: 15, map: 0, killCooldown: 25 };
+      const presetData = presets[preset] || presets.classic;
       const result = await createAndAnnounceLobby(interaction, preset, presetData);
 
       const successPayload = buildSuccessUI(
@@ -530,6 +545,10 @@ async function handleModalSubmit(interaction) {
       noisemakers: state.noisemakers,
       trackers: state.trackers,
       detectives: state.detectives,
+      anonymousVotes: state.anonymousVotes === 1,
+      confirmImpostor: state.confirmImpostor === 1,
+      visualTasks: state.visualTasks === 1,
+      taskBarUpdate: state.taskBarUpdate,
     });
 
     builderState.delete(interaction.user.id);
@@ -623,6 +642,10 @@ async function handleSelectMenu(interaction) {
         else if (customId === "au_build_noise") state.noisemakers = value;
         else if (customId === "au_build_tracker") state.trackers = value;
         else if (customId === "au_build_det") state.detectives = value;
+        else if (customId === "au_build_anon") state.anonymousVotes = parseInt(value, 10);
+        else if (customId === "au_build_conf") state.confirmImpostor = parseInt(value, 10);
+        else if (customId === "au_build_vis") state.visualTasks = parseInt(value, 10);
+        else if (customId === "au_build_tbar") state.taskBarUpdate = parseInt(value, 10);
       }
 
       state.lastActivity = Date.now();

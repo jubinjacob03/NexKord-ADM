@@ -115,6 +115,11 @@ namespace ImpostorApiPlugin
                         options.NumLongTasks = request.NumLongTasks;
                         options.NumShortTasks = request.NumShortTasks;
 
+                        options.AnonymousVotes = request.AnonymousVotes;
+                        options.ConfirmImpostor = request.ConfirmImpostor;
+                        options.VisualTasks = request.VisualTasks;
+                        options.TaskBarUpdate = (TaskBarUpdate)request.TaskBarUpdate;
+
                         // Impostor Roles
                         SetRoleCount(options.RoleOptions, RoleTypes.Shapeshifter, request.ShapeshifterCount);
                         SetRoleCount(options.RoleOptions, RoleTypes.Phantom, request.PhantomCount);
@@ -212,6 +217,11 @@ namespace ImpostorApiPlugin
         public int NumCommonTasks { get; set; }
         public int NumLongTasks { get; set; }
         public int NumShortTasks { get; set; }
+
+        public bool AnonymousVotes { get; set; }
+        public bool ConfirmImpostor { get; set; }
+        public bool VisualTasks { get; set; }
+        public byte TaskBarUpdate { get; set; }
 
         // Impostor Roles
         public byte ShapeshifterCount { get; set; }

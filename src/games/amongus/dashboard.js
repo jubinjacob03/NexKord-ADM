@@ -103,14 +103,24 @@ export async function buildAmongUsDashboardPayload() {
         .setEmoji(icon("LAUNCH_GREEN"))
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
-        .setCustomId("au_create_chaos")
-        .setLabel("Chaos")
+        .setCustomId("au_create_chill")
+        .setLabel("Chill")
         .setEmoji(icon("LAUNCH_MAGENTA"))
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
-        .setCustomId("au_create_shapeshifter")
-        .setLabel("Shapeshifter")
+        .setCustomId("au_create_chaos")
+        .setLabel("Chaos")
         .setEmoji(icon("LAUNCH_VIOLET"))
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId("au_create_trio_mess")
+        .setLabel("Trio-Mess")
+        .setEmoji(icon("LAUNCH_YELLOW"))
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId("au_create_hardcore")
+        .setLabel("Hardcore")
+        .setEmoji(icon("LAUNCH_TEAL"))
         .setStyle(ButtonStyle.Secondary)
     )
   );
@@ -140,8 +150,8 @@ export async function buildAmongUsDashboardPayload() {
         .setEmoji(icon("EDITOR"))
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
-        .setCustomId("au_refresh")
-        .setLabel("Refresh")
+        .setCustomId("au_reset")
+        .setLabel("Reset")
         .setEmoji(icon("PENDING"))
         .setStyle(ButtonStyle.Secondary)
     )

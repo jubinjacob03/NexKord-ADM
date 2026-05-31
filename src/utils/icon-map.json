@@ -92,5 +92,7 @@
   "AU_CAT_TASKS": { "serverEmojiName": "au_cat_tasks", "fallback": "📋" },
   "LAUNCH_GREEN": { "serverEmojiName": "iconLaunchGreen", "fallback": "🚀" },
   "LAUNCH_MAGENTA": { "serverEmojiName": "iconLaunchMagenta", "fallback": "🚀" },
-  "LAUNCH_VIOLET": { "serverEmojiName": "iconLaunchViolet", "fallback": "🚀" }
+  "LAUNCH_VIOLET": { "serverEmojiName": "iconLaunchViolet", "fallback": "🚀" },
+  "LAUNCH_YELLOW": { "serverEmojiName": "iconLaunchYellow", "fallback": "🚀" },
+  "LAUNCH_TEAL": { "serverEmojiName": "iconLaunchTeal", "fallback": "🚀" }
 }

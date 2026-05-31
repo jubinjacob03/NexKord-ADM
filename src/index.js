@@ -54,7 +54,7 @@ const client = new Client({
 });
 
 client.once(Events.ClientReady, async (readyClient) => {
-  initIcons(readyClient);
+  await initIcons(readyClient);
   console.log(
     `[NexKord - ADM] Successfully logged in as ${readyClient.user.tag}`,
   );

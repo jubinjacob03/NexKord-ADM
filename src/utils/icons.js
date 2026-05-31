@@ -15,19 +15,34 @@ const resolvedObjects = {};
 
 /**
  * Call once in the ready event after the client is logged in.
- * Walks all guilds the bot is in and resolves every icon-map entry
- * to a Discord custom emoji string (e.g. <:si_success:1234567890>).
+ * Resolves every icon-map entry to a Discord custom emoji from two sources,
+ * in priority order: application-owned emojis (render anywhere the bot is)
+ * and then guild emojis. Unresolved entries fall back to their unicode glyph.
  * @param {import('discord.js').Client} client
+ * @returns {Promise<void>}
  */
-export function initIcons(client) {
+export async function initIcons(client) {
   const emojiByName = new Map();
+
+  try {
+    const appEmojis = await client.application.emojis.fetch();
+    for (const emoji of appEmojis.values()) {
+      if (emoji.name) emojiByName.set(emoji.name, emoji);
+    }
+  } catch (err) {
+    console.warn(`[ICONS] Failed to fetch application emojis: ${err.message}`);
+  }
+
   for (const guild of client.guilds.cache.values()) {
     for (const emoji of guild.emojis.cache.values()) {
-      if (emoji.name) emojiByName.set(emoji.name, emoji);
+      if (emoji.name && !emojiByName.has(emoji.name)) {
+        emojiByName.set(emoji.name, emoji);
+      }
     }
   }
 
   let loaded = 0;
+  const missing = [];
   for (const [key, entry] of Object.entries(iconMap)) {
     if (key.startsWith("_")) continue;
     const emoji = emojiByName.get(entry.serverEmojiName);
@@ -37,19 +52,23 @@ export function initIcons(client) {
       resolvedObjects[key] = {
         name: emoji.name,
         id: emoji.id,
-        animated: emoji.animated || false
+        animated: emoji.animated || false,
       };
       loaded++;
     } else {
       resolved[key] = entry.fallback;
       resolvedObjects[key] = entry.fallback;
+      missing.push(`${key} (${entry.serverEmojiName})`);
     }
   }
 
   const total = Object.keys(iconMap).filter((k) => !k.startsWith("_")).length;
-  console.log(
-    `[ICONS] Loaded ${loaded}/${total} custom icons (${total - loaded} using unicode fallback)`,
-  );
+  console.log(`[ICONS] Loaded ${loaded}/${total} custom icons`);
+  if (missing.length) {
+    console.warn(
+      `[ICONS] ${missing.length} using unicode fallback: ${missing.join(", ")}`,
+    );
+  }
 }
 
 /**

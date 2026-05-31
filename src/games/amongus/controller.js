@@ -1,18 +1,15 @@
-import { createImpostorLobby, presets } from "./impostor.js";
+import { presets } from "./impostor.js";
 import { auditLog } from "../../utils/logger.js";
 import { buildV2Container } from "../../utils/embed.js";
-import { icon } from "../../utils/icons.js";
 import {
   MessageFlags,
   ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
 import { logAmongUsConsole } from "./dashboard.js";
-import { getCustomPresets, saveCustomPreset, deleteCustomPreset } from "./customPresets.js";
+import { getCustomPresets, saveCustomPreset } from "./customPresets.js";
 import {
   buildCustomPresetMenu,
   buildPresetBuilderUI,
@@ -25,8 +22,46 @@ import axios from "axios";
 const builderState = new Map();
 const stateLocks = new Map();
 const THIRTY_MINUTES = 30 * 60 * 1000;
-const INTERACTION_TIMEOUT = 2500;
 const MAX_PRESETS = 25;
+
+/**
+ * Maps a builder select-menu customId to the numeric state field it controls.
+ */
+const BUILDER_STATE_MAP = Object.freeze({
+  au_build_imp: "impostors",
+  au_build_ply: "maxPlayers",
+  au_build_map: "mapId",
+  au_build_spd: "playerSpeed",
+  au_build_cv: "crewVision",
+  au_build_iv: "impVision",
+  au_build_cd: "killCooldown",
+  au_build_meet: "emergencyMeetings",
+  au_build_mcd: "emergencyCooldown",
+  au_build_disc: "discussionTime",
+  au_build_vote: "votingTime",
+  au_build_tcom: "commonTasks",
+  au_build_tlng: "longTasks",
+  au_build_tsht: "shortTasks",
+  au_build_ss: "shapeshifters",
+  au_build_phantom: "phantoms",
+  au_build_viper: "vipers",
+  au_build_sci: "scientists",
+  au_build_eng: "engineers",
+  au_build_ga: "angels",
+  au_build_noise: "noisemakers",
+  au_build_tracker: "trackers",
+  au_build_det: "detectives",
+});
+
+/**
+ * Maps a builder toggle/enum select-menu customId to its integer state field.
+ */
+const BUILDER_ENUM_MAP = Object.freeze({
+  au_build_anon: "anonymousVotes",
+  au_build_conf: "confirmImpostor",
+  au_build_vis: "visualTasks",
+  au_build_tbar: "taskBarUpdate",
+});
 
 const DEFAULT_STATE = Object.freeze({
   category: "core",
@@ -160,21 +195,6 @@ function getBuilderState(userId) {
   const state = builderState.get(userId);
   state.lastActivity = Date.now();
   return state;
-}
-
-/**
- * Updates builder state for a user with locking
- * @param {string} userId - Discord user ID
- * @param {Object} updates - State updates to apply
- */
-async function updateBuilderState(userId, updates) {
-  const release = await acquireStateLock(userId);
-  try {
-    const state = getBuilderState(userId);
-    Object.assign(state, updates, { lastActivity: Date.now() });
-  } finally {
-    release();
-  }
 }
 
 /**
@@ -444,12 +464,22 @@ async function handleButtonInteraction(interaction) {
   }
 
   if (customId === "au_build_save") {
-    const state = getBuilderState(interaction.user.id);
+    const state = builderState.get(interaction.user.id);
+
+    if (!state) {
+      const errorPayload = buildErrorUI(
+        "Session Expired",
+        "Your builder session has expired. Please start over.",
+      );
+      await safeRespond(interaction, errorPayload, true);
+      return true;
+    }
+
     const validation = validateBuilderState(state);
 
     if (!validation.isValid) {
       const errorPayload = buildErrorUI("Invalid Configuration", validation.error);
-      await interaction.reply({ ...errorPayload, ephemeral: true });
+      await safeRespond(interaction, errorPayload);
       return true;
     }
 
@@ -627,17 +657,6 @@ async function handleSelectMenu(interaction) {
     try {
       const rawValue = interaction.values[0];
 
-      const BUILDER_STATE_MAP = {
-        au_build_imp: "impostors", au_build_ply: "maxPlayers", au_build_map: "mapId",
-        au_build_spd: "playerSpeed", au_build_cv: "crewVision", au_build_iv: "impVision",
-        au_build_cd: "killCooldown", au_build_meet: "emergencyMeetings", au_build_mcd: "emergencyCooldown",
-        au_build_disc: "discussionTime", au_build_vote: "votingTime", au_build_tcom: "commonTasks",
-        au_build_tlng: "longTasks", au_build_tsht: "shortTasks", au_build_ss: "shapeshifters",
-        au_build_phantom: "phantoms", au_build_viper: "vipers", au_build_sci: "scientists",
-        au_build_eng: "engineers", au_build_ga: "angels", au_build_noise: "noisemakers",
-        au_build_tracker: "trackers", au_build_det: "detectives"
-      };
-
       if (customId === "au_build_category") {
         state.category = rawValue;
       } else {
@@ -647,14 +666,8 @@ async function handleSelectMenu(interaction) {
         }
         if (BUILDER_STATE_MAP[customId]) {
           state[BUILDER_STATE_MAP[customId]] = value;
-        } else if (customId === "au_build_anon") {
-          state.anonymousVotes = parseInt(value, 10);
-        } else if (customId === "au_build_conf") {
-          state.confirmImpostor = parseInt(value, 10);
-        } else if (customId === "au_build_vis") {
-          state.visualTasks = parseInt(value, 10);
-        } else if (customId === "au_build_tbar") {
-          state.taskBarUpdate = parseInt(value, 10);
+        } else if (BUILDER_ENUM_MAP[customId]) {
+          state[BUILDER_ENUM_MAP[customId]] = parseInt(value, 10);
         }
       }
 

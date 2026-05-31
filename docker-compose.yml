@@ -19,9 +19,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 400M
+          cpus: '0.7'
         reservations:
-          memory: 256M
+          memory: 200M
+          cpus: '0.2'
 
   impostor:
     build:
@@ -41,6 +43,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 200M
+          cpus: '0.3'
         reservations:
-          memory: 128M
+          memory: 100M
+          cpus: '0.1'

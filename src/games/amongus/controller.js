@@ -3,6 +3,7 @@ import { auditLog } from "../../utils/logger.js";
 import { eReply } from "../../utils/embed.js";
 import { icon } from "../../utils/icons.js";
 import { MessageFlags } from "discord.js";
+import axios from "axios";
 
 /**
  * Handles Among Us button interactions from the dashboard.
@@ -40,6 +41,16 @@ export async function handleAmongUsInteraction(interaction) {
 
       const serverIp = process.env.IMPOSTOR_SERVER_IP || "play.nexkord.com";
       const deepLink = `amongus://init?servername=NexKord&serverip=${serverIp}&serverport=22023&usedtls=false`;
+      
+      let clickableLink = deepLink;
+      try {
+        const res = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(deepLink)}`);
+        if (res.data && res.data.startsWith("http")) {
+          clickableLink = res.data;
+        }
+      } catch (e) {
+        console.error("[AmongUs] Failed to generate shortlink:", e.message);
+      }
 
       await interaction.editReply(
         eReply(
@@ -50,7 +61,7 @@ export async function handleAmongUsInteraction(interaction) {
           `### How to Connect\n` +
           `**PC / Android:** Make sure your \`regionInfo.json\` is set to NexKord.\n` +
           `**iOS / Android (Auto):** Open Among Us in the background, then click this link:\n` +
-          `[Tap here to connect to NexKord Server](${deepLink})`
+          `[Tap here to connect to NexKord Server](${clickableLink})`
         )
       );
     } catch (error) {

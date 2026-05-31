@@ -256,7 +256,7 @@ async function createAndAnnounceLobby(interaction, presetName, presetData) {
 
     auditLog("info", "AMONGUS_LOBBY_CREATED", `Lobby ${code} created via preset '${presetName}' by ${interaction.user.tag}`);
 
-    const targetChannelId = process.env.AMONGUS_ANNOUNCE_CHANNEL_ID || "1506836961263095931";
+    const targetChannelId = process.env.AMONGUS_ANNOUNCE_CHANNEL_ID || interaction.channelId;
     const pingRoleId = process.env.AMONGUS_PING_ROLE_ID || "1510515943103664218";
 
     try {
@@ -264,7 +264,7 @@ async function createAndAnnounceLobby(interaction, presetName, presetData) {
       if (targetChannel?.isTextBased()) {
         const publicContainer = buildV2Container(
           "Among Us Custom Lobby Created",
-          `**${interaction.user.toString()}** has created a new **${presetName.toUpperCase()}** lobby!\n\n` +
+          `<@&${pingRoleId}>\n**${interaction.user.toString()}** has created a new **${presetName.toUpperCase()}** lobby!\n\n` +
             `**Room Code:** \`${code}\`\n\n` +
             `### How to Connect\n` +
             `**PC / Android:** Make sure your \`regionInfo.json\` is set to NexKord.\n` +
@@ -274,7 +274,6 @@ async function createAndAnnounceLobby(interaction, presetName, presetData) {
         );
 
         await targetChannel.send({
-          content: `<@&${pingRoleId}>`,
           components: [publicContainer],
           flags: MessageFlags.IsComponentsV2,
         });
@@ -474,7 +473,7 @@ async function handleButtonInteraction(interaction) {
 
       const successPayload = buildSuccessUI(
         "Lobby Created",
-        `${icon("SUCCESS")} Successfully created the lobby!\n\n**Room Code:** \`${result.code}\`\n\nAnnounced in <#${result.channelId}>.`
+        `Successfully created the lobby!\n\n**Room Code:** \`${result.code}\`\n\nAnnounced in <#${result.channelId}>.`
       );
 
       await safeRespond(interaction, successPayload);
@@ -555,7 +554,7 @@ async function handleModalSubmit(interaction) {
 
     const successPayload = buildSuccessUI(
       "Preset Saved",
-      `${icon("SUCCESS")} Successfully saved **${name}**!\n\nYou can now launch it from the Custom menu.`
+      `Successfully saved **${name}**!\n\nYou can now launch it from the Custom menu.`
     );
 
     await safeRespond(interaction, successPayload);
@@ -591,7 +590,7 @@ async function handleSelectMenu(interaction) {
 
       const successPayload = buildSuccessUI(
         "Lobby Created",
-        `${icon("SUCCESS")} Successfully created the lobby!\n\n**Room Code:** \`${result.code}\`\n\nAnnounced in <#${result.channelId}>.`
+        `Successfully created the lobby!\n\n**Room Code:** \`${result.code}\`\n\nAnnounced in <#${result.channelId}>.`
       );
 
       await safeRespond(interaction, successPayload);

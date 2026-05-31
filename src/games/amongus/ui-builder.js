@@ -9,7 +9,7 @@ import {
   StringSelectMenuBuilder,
   MessageFlags,
 } from "discord.js";
-import { icon } from "../../utils/icons.js";
+import { icon, emojiObj } from "../../utils/icons.js";
 
 const COLORS = {
   PRIMARY: 0x00ffff,
@@ -21,21 +21,21 @@ const COLORS = {
 
 const MAP_NAMES = ["The Skeld", "Mira HQ", "Polus", "Airship", "The Fungle"];
 const MAP_EMOJIS = [
-  icon("AU_MAP_SKELD"),
-  icon("AU_MAP_MIRA"),
-  icon("AU_MAP_POLUS"),
-  icon("AU_MAP_AIRSHIP"),
-  icon("AU_MAP_FUNGLE")
+  "AU_MAP_SKELD",
+  "AU_MAP_MIRA",
+  "AU_MAP_POLUS",
+  "AU_MAP_AIRSHIP",
+  "AU_MAP_FUNGLE"
 ];
 
 const CATEGORIES = {
-  core: { label: "Core Settings", emoji: icon("AU_CAT_CORE"), description: "Players, Impostors, Map" },
-  game_rules: { label: "Game Rules", emoji: icon("AU_CAT_RULES"), description: "Speed, Cooldown" },
-  game_vision: { label: "Vision Settings", emoji: icon("AU_CAT_VISION"), description: "Crew & Impostor Vision" },
-  tasks: { label: "Task Settings", emoji: icon("AU_CAT_TASKS"), description: "Common, Long, Short Tasks" },
-  roles_imp: { label: "Impostor Roles", emoji: icon("ROLE_SHAPESHIFTER"), description: "Shapeshifter, Phantom, Viper" },
-  roles_crew1: { label: "Crew Roles I", emoji: icon("ROLE_SCIENTIST"), description: "Scientist, Engineer, Tracker" },
-  roles_crew2: { label: "Crew Roles II", emoji: icon("ROLE_GUARDIANANGEL"), description: "Guardian Angel, Noisemaker, Detective" },
+  core: { label: "Core Settings", iconKey: "AU_CAT_CORE", description: "Players, Impostors, Map" },
+  game_rules: { label: "Game Rules", iconKey: "AU_CAT_RULES", description: "Speed, Cooldown" },
+  game_vision: { label: "Vision Settings", iconKey: "AU_CAT_VISION", description: "Crew & Impostor Vision" },
+  tasks: { label: "Task Settings", iconKey: "AU_CAT_TASKS", description: "Common, Long, Short Tasks" },
+  roles_imp: { label: "Impostor Roles", iconKey: "ROLE_SHAPESHIFTER", description: "Shapeshifter, Phantom, Viper" },
+  roles_crew1: { label: "Crew Roles I", iconKey: "ROLE_SCIENTIST", description: "Scientist, Engineer, Tracker" },
+  roles_crew2: { label: "Crew Roles II", iconKey: "ROLE_GUARDIANANGEL", description: "Guardian Angel, Noisemaker, Detective" },
 };
 
 const MAX_PRESET_DISPLAY = 20;
@@ -56,7 +56,7 @@ function validateMapIndex(mapId) {
  * @returns {Object} Discord message payload
  */
 export function buildCustomPresetMenu(presets) {
-  const container = new ContainerBuilder().setAccentColor(COLORS.EPHEMERAL);
+  const container = new ContainerBuilder().setAccentColor(COLORS.WARNING);
 
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
@@ -78,7 +78,7 @@ export function buildCustomPresetMenu(presets) {
 
       const mapId = validateMapIndex(p.map);
       const mapName = MAP_NAMES[mapId];
-      const mapEmoji = MAP_EMOJIS[mapId];
+      const mapEmoji = icon(MAP_EMOJIS[mapId]);
 
       const roleCount =
         (p.shapeshifters || 0) + (p.phantoms || 0) + (p.vipers || 0) +
@@ -86,8 +86,8 @@ export function buildCustomPresetMenu(presets) {
         (p.noisemakers || 0) + (p.trackers || 0) + (p.detectives || 0);
 
       return `${icon("LAUNCH_GREEN")} **${key}**\n` +
-             `${mapEmoji} ${mapName} • ${p.impostors || 0} ${icon("AU_IMPOSTOR")} • ${p.maxPlayers || 0} ${icon("USER")} • ${roleCount} Roles\n` +
-             `${icon("TIME")} ${p.killCooldown || 0}s CD • ${icon("MICRO_YELLOW")} ${p.playerSpeed || 1.0}x Speed`;
+             `${mapEmoji}  ${mapName}  •  ${p.impostors || 0}  ${icon("AU_IMPOSTOR")}  •  ${p.maxPlayers || 0}  ${icon("MEMBERS")}  •  ${roleCount}  Roles\n` +
+             `${icon("TIMER")}  ${p.killCooldown || 0}s  CD  • ${icon("MICRO_YELLOW")}  ${p.playerSpeed || 1.0}x Speed`;
     }).filter(Boolean).join("\n\n");
 
     if (presetList) {
@@ -99,12 +99,12 @@ export function buildCustomPresetMenu(presets) {
 
       const selectMenu = new StringSelectMenuBuilder()
         .setCustomId("au_select_custom_preset")
-        .setPlaceholder("🚀 Select a preset to launch...")
+        .setPlaceholder("Select a preset to launch...")
         .addOptions(
           presetKeys.map(key => {
             const p = presets[key];
             const mapId = validateMapIndex(p.map);
-            const mapEmoji = MAP_EMOJIS[mapId];
+            const mapEmoji = emojiObj(MAP_EMOJIS[mapId]);
             return {
               label: key.substring(0, 100),
               description: `${p.impostors || 0} Imp • ${p.maxPlayers || 0} Players • ${p.killCooldown || 0}s CD`,
@@ -119,7 +119,7 @@ export function buildCustomPresetMenu(presets) {
   } else {
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `${icon("INFO")} **No Custom Presets Yet**\n\n` +
+        `**No Custom Presets Yet**\n\n` +
         `You haven't created any custom presets. Click the button below to create your first one!\n\n` +
         `Custom presets let you save your favorite game configurations for quick access.`
       )
@@ -133,13 +133,13 @@ export function buildCustomPresetMenu(presets) {
   const createBtn = new ButtonBuilder()
     .setCustomId("au_builder_init")
     .setLabel("Create New Preset")
-    .setEmoji(icon("EDITOR"))
-    .setStyle(ButtonStyle.Primary);
+    .setEmoji(emojiObj("EDITOR"))
+    .setStyle(ButtonStyle.Secondary);
 
   const backBtn = new ButtonBuilder()
     .setCustomId("au_back_to_main")
     .setLabel("Back")
-    .setEmoji(icon("PREVIOUS"))
+    .setEmoji(emojiObj("SCROLL_UP"))
     .setStyle(ButtonStyle.Secondary);
 
   container.addActionRowComponents(
@@ -164,11 +164,9 @@ export function buildPresetBuilderUI(state) {
 
   const container = new ContainerBuilder().setAccentColor(COLORS.PRIMARY);
 
-  const categoryMeta = CATEGORIES[state.category] || CATEGORIES.core;
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `### ${icon("EDITOR")} Preset Builder\n` +
-      `${categoryMeta.emoji} **${categoryMeta.label}** • ${categoryMeta.description}`
+      `### ${icon("EDITOR")} Preset Builder`
     )
   );
 
@@ -185,13 +183,13 @@ export function buildPresetBuilderUI(state) {
 
   const categorySelect = new StringSelectMenuBuilder()
     .setCustomId("au_build_category")
-    .setPlaceholder("📂 Select Settings Category")
+    .setPlaceholder("Select Settings Category")
     .addOptions(
       Object.entries(CATEGORIES).map(([key, meta]) => ({
         label: meta.label,
         value: key,
         description: meta.description,
-        emoji: meta.emoji,
+        emoji: emojiObj(meta.iconKey),
         default: state.category === key,
       }))
     );
@@ -204,19 +202,19 @@ export function buildPresetBuilderUI(state) {
   const saveBtn = new ButtonBuilder()
     .setCustomId("au_build_save")
     .setLabel("Save Preset")
-    .setEmoji(icon("SAVED"))
+    .setEmoji(emojiObj("SAVED"))
     .setStyle(ButtonStyle.Success);
 
   const backBtn = new ButtonBuilder()
     .setCustomId("au_build_back")
     .setLabel("Back")
-    .setEmoji(icon("PREVIOUS"))
+    .setEmoji(emojiObj("SCROLL_UP"))
     .setStyle(ButtonStyle.Secondary);
 
   const cancelBtn = new ButtonBuilder()
     .setCustomId("au_build_cancel")
     .setLabel("Cancel")
-    .setEmoji(icon("ERROR"))
+    .setEmoji(emojiObj("ERROR"))
     .setStyle(ButtonStyle.Danger);
 
   rows.push(new ActionRowBuilder().addComponents(saveBtn, backBtn, cancelBtn));
@@ -241,28 +239,28 @@ export function buildPresetBuilderUI(state) {
 function buildConfigurationSummary(state) {
   const mapId = validateMapIndex(state.mapId);
   const mapName = MAP_NAMES[mapId];
-  const mapEmoji = MAP_EMOJIS[mapId];
+  const mapEmoji = icon(MAP_EMOJIS[mapId]);
 
   const sections = [];
 
   sections.push(
-    `${icon("AU_CAT_CORE")} **Core**\n` +
-    `${mapEmoji} ${mapName} • ${state.impostors || 0} ${icon("AU_IMPOSTOR")} Impostors • ${state.maxPlayers || 0} ${icon("USER")} Players`
+    `${icon("AU_CAT_CORE")}\u00A0\u00A0**Core**\n` +
+    `> ${mapEmoji}\u00A0\u00A0${mapName} \u00A0•\u00A0 ${state.impostors || 0} ${icon("AU_IMPOSTOR")}\u00A0\u00A0Impostors \u00A0•\u00A0 ${state.maxPlayers || 0} ${icon("MEMBERS")}\u00A0\u00A0Players`
   );
 
   sections.push(
-    `${icon("AU_CAT_RULES")} **Rules**\n` +
-    `${icon("MICRO_YELLOW")} ${state.playerSpeed || 1.0}x Speed • ${icon("TIME")} ${state.killCooldown || 0}s Kill Cooldown`
+    `${icon("AU_CAT_RULES")}\u00A0\u00A0**Rules**\n` +
+    `> ${icon("MICRO_YELLOW")}\u00A0\u00A0${state.playerSpeed || 1.0}x Speed \u00A0•\u00A0 ${icon("TIMER")}\u00A0\u00A0${state.killCooldown || 0}s Kill Cooldown`
   );
 
   sections.push(
-    `${icon("AU_CAT_VISION")} **Vision**\n` +
-    `${icon("USER")} ${state.crewVision || 1.0}x Crew • ${icon("AU_IMPOSTOR")} ${state.impVision || 1.5}x Impostor`
+    `${icon("AU_CAT_VISION")}\u00A0\u00A0**Vision**\n` +
+    `> ${icon("MEMBERS")}\u00A0\u00A0${state.crewVision || 1.0}x Crew \u00A0•\u00A0 ${icon("AU_IMPOSTOR")}\u00A0\u00A0${state.impVision || 1.5}x Impostor`
   );
 
   sections.push(
-    `${icon("AU_CAT_TASKS")} **Tasks**\n` +
-    `${state.commonTasks || 0} Common • ${state.longTasks || 0} Long • ${state.shortTasks || 0} Short`
+    `${icon("AU_CAT_TASKS")}\u00A0\u00A0**Tasks**\n` +
+    `> ${state.commonTasks || 0} Common \u00A0•\u00A0 ${state.longTasks || 0} Long \u00A0•\u00A0 ${state.shortTasks || 0} Short`
   );
 
   const impRoles = [];
@@ -271,7 +269,7 @@ function buildConfigurationSummary(state) {
   if (state.vipers > 0) impRoles.push(`${state.vipers} Viper`);
 
   if (impRoles.length > 0) {
-    sections.push(`${icon("AU_IMPOSTOR")} **Impostor Roles**\n${impRoles.join(" • ")}`);
+    sections.push(`${icon("AU_IMPOSTOR")}\u00A0\u00A0**Impostor Roles**\n> ${impRoles.join(" \u00A0•\u00A0 ")}`);
   }
 
   const crewRoles = [];
@@ -283,7 +281,7 @@ function buildConfigurationSummary(state) {
   if (state.detectives > 0) crewRoles.push(`${state.detectives} Detective`);
 
   if (crewRoles.length > 0) {
-    sections.push(`${icon("POWER_GREEN")} **Crew Roles**\n${crewRoles.join(" • ")}`);
+    sections.push(`${icon("POWER_GREEN")}\u00A0\u00A0**Crew Roles**\n> ${crewRoles.join(" \u00A0•\u00A0 ")}`);
   }
 
   return sections.join("\n\n");
@@ -307,7 +305,7 @@ function buildCategoryControls(state) {
             .addOptions([1, 2, 3].map(n => ({
               label: `${n} Impostor${n > 1 ? "s" : ""}`,
               value: n.toString(),
-              emoji: icon("AU_IMPOSTOR"),
+              emoji: emojiObj("AU_IMPOSTOR"),
               default: state.impostors === n,
             })))
         ),
@@ -318,7 +316,7 @@ function buildCategoryControls(state) {
             .addOptions([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map(n => ({
               label: `${n} Players`,
               value: n.toString(),
-              emoji: icon("USER"),
+              emoji: emojiObj("MEMBERS"),
               default: state.maxPlayers === n,
             })))
         ),
@@ -330,7 +328,7 @@ function buildCategoryControls(state) {
               MAP_NAMES.map((name, i) => ({
                 label: name,
                 value: i.toString(),
-                emoji: MAP_EMOJIS[i],
+                emoji: emojiObj(MAP_EMOJIS[i]),
                 default: state.mapId === i,
               }))
             )
@@ -372,7 +370,7 @@ function buildCategoryControls(state) {
             .addOptions([0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 5.0].map(n => ({
               label: `${n}x Crew Vision`,
               value: n.toString(),
-              emoji: icon("USER"),
+              emoji: emojiObj("MEMBERS"),
               default: state.crewVision === n,
             })))
         ),
@@ -383,7 +381,7 @@ function buildCategoryControls(state) {
             .addOptions([0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 5.0].map(n => ({
               label: `${n}x Imp Vision`,
               value: n.toString(),
-              emoji: icon("AU_IMPOSTOR"),
+              emoji: emojiObj("AU_IMPOSTOR"),
               default: state.impVision === n,
             })))
         )
@@ -431,10 +429,10 @@ function buildCategoryControls(state) {
           new StringSelectMenuBuilder()
             .setCustomId("au_build_ss")
             .setPlaceholder("Shapeshifters")
-            .addOptions([0, 1, 2, 3].map(n => ({
+            .addOptions([0, 1, 2, 3, 4, 5].map(n => ({
               label: `${n} Shapeshifter${n !== 1 ? "s" : ""}`,
               value: n.toString(),
-              emoji: icon("ROLE_SHAPESHIFTER"),
+              emoji: emojiObj("ROLE_SHAPESHIFTER"),
               default: state.shapeshifters === n,
             })))
         ),
@@ -442,10 +440,10 @@ function buildCategoryControls(state) {
           new StringSelectMenuBuilder()
             .setCustomId("au_build_phantom")
             .setPlaceholder("Phantoms")
-            .addOptions([0, 1, 2, 3].map(n => ({
+            .addOptions([0, 1, 2, 3, 4, 5].map(n => ({
               label: `${n} Phantom${n !== 1 ? "s" : ""}`,
               value: n.toString(),
-              emoji: icon("ROLE_PHANTOM"),
+              emoji: emojiObj("ROLE_PHANTOM"),
               default: state.phantoms === n,
             })))
         ),
@@ -453,10 +451,10 @@ function buildCategoryControls(state) {
           new StringSelectMenuBuilder()
             .setCustomId("au_build_viper")
             .setPlaceholder("Vipers")
-            .addOptions([0, 1, 2, 3].map(n => ({
+            .addOptions([0, 1, 2, 3, 4, 5].map(n => ({
               label: `${n} Viper${n !== 1 ? "s" : ""}`,
               value: n.toString(),
-              emoji: icon("ROLE_VIPER"),
+              emoji: emojiObj("ROLE_VIPER"),
               default: state.vipers === n,
             })))
         )
@@ -469,10 +467,10 @@ function buildCategoryControls(state) {
           new StringSelectMenuBuilder()
             .setCustomId("au_build_sci")
             .setPlaceholder("Scientists")
-            .addOptions([0, 1, 2, 3].map(n => ({
+            .addOptions([0, 1, 2, 3, 4, 5].map(n => ({
               label: `${n} Scientist${n !== 1 ? "s" : ""}`,
               value: n.toString(),
-              emoji: icon("ROLE_SCIENTIST"),
+              emoji: emojiObj("ROLE_SCIENTIST"),
               default: state.scientists === n,
             })))
         ),
@@ -480,10 +478,10 @@ function buildCategoryControls(state) {
           new StringSelectMenuBuilder()
             .setCustomId("au_build_eng")
             .setPlaceholder("Engineers")
-            .addOptions([0, 1, 2, 3].map(n => ({
+            .addOptions([0, 1, 2, 3, 4, 5].map(n => ({
               label: `${n} Engineer${n !== 1 ? "s" : ""}`,
               value: n.toString(),
-              emoji: icon("ROLE_ENGINEER"),
+              emoji: emojiObj("ROLE_ENGINEER"),
               default: state.engineers === n,
             })))
         ),
@@ -491,10 +489,10 @@ function buildCategoryControls(state) {
           new StringSelectMenuBuilder()
             .setCustomId("au_build_tracker")
             .setPlaceholder("Trackers")
-            .addOptions([0, 1, 2, 3].map(n => ({
+            .addOptions([0, 1, 2, 3, 4, 5].map(n => ({
               label: `${n} Tracker${n !== 1 ? "s" : ""}`,
               value: n.toString(),
-              emoji: icon("ROLE_TRACKER"),
+              emoji: emojiObj("ROLE_TRACKER"),
               default: state.trackers === n,
             })))
         )
@@ -507,10 +505,10 @@ function buildCategoryControls(state) {
           new StringSelectMenuBuilder()
             .setCustomId("au_build_ga")
             .setPlaceholder("Guardian Angels")
-            .addOptions([0, 1, 2, 3].map(n => ({
+            .addOptions([0, 1, 2, 3, 4, 5].map(n => ({
               label: `${n} Guardian Angel${n !== 1 ? "s" : ""}`,
               value: n.toString(),
-              emoji: icon("ROLE_GUARDIANANGEL"),
+              emoji: emojiObj("ROLE_GUARDIANANGEL"),
               default: state.angels === n,
             })))
         ),
@@ -518,10 +516,10 @@ function buildCategoryControls(state) {
           new StringSelectMenuBuilder()
             .setCustomId("au_build_noise")
             .setPlaceholder("Noisemakers")
-            .addOptions([0, 1, 2, 3].map(n => ({
+            .addOptions([0, 1, 2, 3, 4, 5].map(n => ({
               label: `${n} Noisemaker${n !== 1 ? "s" : ""}`,
               value: n.toString(),
-              emoji: icon("ROLE_NOISEMAKER"),
+              emoji: emojiObj("ROLE_NOISEMAKER"),
               default: state.noisemakers === n,
             })))
         ),
@@ -529,10 +527,10 @@ function buildCategoryControls(state) {
           new StringSelectMenuBuilder()
             .setCustomId("au_build_det")
             .setPlaceholder("Detectives")
-            .addOptions([0, 1, 2, 3].map(n => ({
+            .addOptions([0, 1, 2, 3, 4, 5].map(n => ({
               label: `${n} Detective${n !== 1 ? "s" : ""}`,
               value: n.toString(),
-              emoji: icon("ROLE_DETECTIVE"),
+              emoji: emojiObj("ROLE_DETECTIVE"),
               default: state.detectives === n,
             })))
         )
@@ -564,23 +562,23 @@ export function buildPresetInfoUI() {
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
       `${icon("LAUNCH_GREEN")} **Classic**\n` +
-      `${icon("AU_MAP_SKELD")} The Skeld • 2 ${icon("AU_IMPOSTOR")} • 15 ${icon("USER")}\n` +
-      `${icon("TIME")} 25s Kill Cooldown\n\n` +
+      `${icon("AU_MAP_SKELD")} The Skeld • 2 ${icon("AU_IMPOSTOR")} • 15 ${icon("MEMBERS")}\n` +
+      `${icon("TIMER")} 25s Kill Cooldown\n\n` +
 
       `${icon("LAUNCH_MAGENTA")} **Chaos**\n` +
-      `${icon("AU_MAP_SKELD")} The Skeld • 3 ${icon("AU_IMPOSTOR")} • 15 ${icon("USER")}\n` +
-      `${icon("TIME")} 25s Kill Cooldown\n\n` +
+      `${icon("AU_MAP_SKELD")} The Skeld • 3 ${icon("AU_IMPOSTOR")} • 15 ${icon("MEMBERS")}\n` +
+      `${icon("TIMER")} 25s Kill Cooldown\n\n` +
 
       `${icon("LAUNCH_VIOLET")} **Shapeshifter**\n` +
-      `${icon("AU_MAP_SKELD")} The Skeld • 3 ${icon("AU_IMPOSTOR")} • 15 ${icon("USER")}\n` +
-      `${icon("ROLE_SHAPESHIFTER")} 1 Shapeshifter • ${icon("TIME")} 25s Kill Cooldown`
+      `${icon("AU_MAP_SKELD")} The Skeld • 3 ${icon("AU_IMPOSTOR")} • 15 ${icon("MEMBERS")}\n` +
+      `${icon("ROLE_SHAPESHIFTER")} 1 Shapeshifter • ${icon("TIMER")} 25s Kill Cooldown`
     )
   );
 
   const backBtn = new ButtonBuilder()
     .setCustomId("au_back_to_main")
     .setLabel("Back")
-    .setEmoji(icon("PREVIOUS"))
+    .setEmoji(emojiObj("SCROLL_UP"))
     .setStyle(ButtonStyle.Secondary);
 
   container.addSeparatorComponents(

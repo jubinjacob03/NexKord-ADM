@@ -90,9 +90,7 @@ export async function buildAmongUsDashboardPayload() {
   );
 
   container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(
-      `${icon("LAUNCH_GREEN")}  **Quick Launch Presets**\n`
-    )
+    new TextDisplayBuilder().setContent(`### ${icon("LAUNCH_VIOLET")}  Quick Launch Presets`)
   );
 
   container.addSeparatorComponents(new SeparatorBuilder().setDivider(false));
@@ -142,9 +140,9 @@ export async function buildAmongUsDashboardPayload() {
         .setEmoji(icon("EDITOR"))
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
-        .setCustomId("au_reset")
-        .setLabel("Reset Guide")
-        .setEmoji(icon("REFRESH"))
+        .setCustomId("au_refresh")
+        .setLabel("Refresh")
+        .setEmoji(icon("PENDING"))
         .setStyle(ButtonStyle.Secondary)
     )
   );

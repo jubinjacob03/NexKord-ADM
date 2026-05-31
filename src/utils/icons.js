@@ -8,6 +8,12 @@ import iconMap from "./icon-map.json" with { type: "json" };
 const resolved = {};
 
 /**
+ * Resolved custom emoji objects for use in select menus/buttons
+ * @type {Record<string, {name: string, id: string} | string>}
+ */
+const resolvedObjects = {};
+
+/**
  * Call once in the ready event after the client is logged in.
  * Walks all guilds the bot is in and resolves every icon-map entry
  * to a Discord custom emoji string (e.g. <:si_success:1234567890>).
@@ -28,9 +34,15 @@ export function initIcons(client) {
     if (emoji) {
       resolved[key] =
         `<${emoji.animated ? "a" : ""}:${emoji.name}:${emoji.id}>`;
+      resolvedObjects[key] = {
+        name: emoji.name,
+        id: emoji.id,
+        animated: emoji.animated || false
+      };
       loaded++;
     } else {
       resolved[key] = entry.fallback;
+      resolvedObjects[key] = entry.fallback;
     }
   }
 
@@ -48,6 +60,17 @@ export function initIcons(client) {
  */
 export function icon(key) {
   if (resolved[key] !== undefined) return resolved[key];
+  return iconMap[key]?.fallback ?? "";
+}
+
+/**
+ * Get an emoji object for use in select menus and buttons
+ * Returns {name, id} for custom emojis or the unicode string for fallbacks
+ * @param {string} key - Icon key e.g. "SUCCESS", "ERROR", "TICKET"
+ * @returns {{name: string, id: string, animated?: boolean} | string}
+ */
+export function emojiObj(key) {
+  if (resolvedObjects[key] !== undefined) return resolvedObjects[key];
   return iconMap[key]?.fallback ?? "";
 }
 

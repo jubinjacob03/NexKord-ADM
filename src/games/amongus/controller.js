@@ -372,11 +372,11 @@ async function handleButtonInteraction(interaction) {
 
   if (customId === "au_reset") {
     const payload = buildSuccessUI(
-      "Reset to Official Servers",
-      `${icon("INFO")} **How to reset your game back to official servers:**\n\n` +
-        `1. Open Among Us.\n2. Click on **Online**.\n3. In the bottom right corner, click the **Globe Icon**.\n` +
-        `4. Select **North America**, **Europe**, or **Asia**.\n\nYour game is now disconnected from NexKord!`
-    );
+        "Reset to Official Servers",
+        `**How to reset your game back to official servers:**\n\n` +
+          `1. Open Among Us.\n2. Click on **Online**.\n3. In the bottom right corner, click the **Globe Icon**.\n` +
+          `4. Select **North America**, **Europe**, or **Asia**.\n\nYour game is now disconnected from NexKord!`
+      );
     await safeRespond(interaction, payload, isFromEphemeral(interaction));
     return true;
   }

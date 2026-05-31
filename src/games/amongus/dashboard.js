@@ -8,6 +8,7 @@ import {
   SeparatorSpacingSize,
   MediaGalleryBuilder,
   MediaGalleryItemBuilder,
+  MessageFlags,
 } from "discord.js";
 import { icon } from "../../utils/icons.js";
 
@@ -73,7 +74,7 @@ export async function buildAmongUsDashboardPayload() {
     )
   );
 
-  return { components: [container] };
+  return { components: [container], flags: MessageFlags.IsComponentsV2 };
 }
 
 /**

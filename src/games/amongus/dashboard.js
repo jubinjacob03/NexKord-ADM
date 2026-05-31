@@ -34,7 +34,7 @@ export async function buildAmongUsDashboardPayload() {
 
   const bannerGallery = new MediaGalleryBuilder().addItems(
     new MediaGalleryItemBuilder().setURL(
-      "https://raw.githubusercontent.com/jubinjacob03/jubinjacob03/main/Public-CDN/au-banner.png"
+      "https://raw.githubusercontent.com/jubinjacob03/jubinjacob03/main/Public-CDN/au-banner.jpg"
     ),
   );
   container.addMediaGalleryComponents(bannerGallery);

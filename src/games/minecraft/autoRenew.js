@@ -96,7 +96,10 @@ export async function executeAutoRenew(client) {
     });
 
     const serverUrl = `https://panel.freegamehost.xyz/server/${uuid}`;
-    await page.goto(serverUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.goto(serverUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 30000,
+    });
 
     if (page.url().includes("/auth/login")) {
       auditLog(
@@ -152,7 +155,7 @@ export async function executeAutoRenew(client) {
         "AUTORENEW",
         "Renew button not found or is currently disabled (cooldown active).",
       );
-      return; // We don't notify Discord for normal cooldowns to avoid spam
+      return;
     }
 
     auditLog(

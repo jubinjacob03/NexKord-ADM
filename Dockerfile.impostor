@@ -1,0 +1,17 @@
+# Stage 1: Build the C# Plugin
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+# Copy the plugin source code
+COPY src/games/amongus/ImpostorApiPlugin/ ./ImpostorApiPlugin/
+
+# Build the plugin
+WORKDIR /src/ImpostorApiPlugin
+RUN dotnet restore
+RUN dotnet build -c Release -o /app/build
+
+# Stage 2: Run the Impostor Server
+FROM aeonlucid/impostor:nightly
+
+# Copy the compiled plugin from the build stage into the Impostor plugins directory
+COPY --from=build /app/build/ImpostorApiPlugin.dll /app/plugins/ImpostorApiPlugin.dll

@@ -7,6 +7,10 @@ import {
   updateDashboardWithStats,
   updateDashboardWithConsole,
 } from "./games/minecraft/dashboard.js";
+import {
+  postAmongUsDashboard,
+} from "./games/amongus/dashboard.js";
+import { handleAmongUsInteraction } from "./games/amongus/controller.js";
 import { connectWebSocket } from "./games/minecraft/pterodactyl.js";
 import { initUptimeMonitor } from "./games/minecraft/uptimeMonitor.js";
 import { handleSlashCommand } from "./commands.js";
@@ -59,6 +63,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   );
 
   await postMinecraftDashboard(client);
+  await postAmongUsDashboard(client);
 
   connectWebSocket({
     onStatsUpdate: updateDashboardWithStats,
@@ -76,7 +81,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isChatInputCommand() || interaction.isAutocomplete()) {
       await handleSlashCommand(interaction);
     } else {
-      await handleMinecraftInteraction(interaction);
+      const handledByAmongUs = await handleAmongUsInteraction(interaction);
+      if (!handledByAmongUs) {
+        await handleMinecraftInteraction(interaction);
+      }
     }
   } catch (error) {
     console.error("Interaction error:", error);

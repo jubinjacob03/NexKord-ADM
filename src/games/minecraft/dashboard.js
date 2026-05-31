@@ -56,7 +56,6 @@ async function buildDashboardPayload(status = null) {
   );
   container.addMediaGalleryComponents(bannerGallery);
 
-  // Add server connection details
   const details = await getServerDetails();
   const connectionString = `${icon("HELP_WORLD")} **SERVER : ** \`${details.ip}\` \u00A0\u00A0 ${icon("MC_ADDRESS")} **PORT : ** \`${details.port}\``;
   container.addTextDisplayComponents(
@@ -435,10 +434,10 @@ async function triggerDashboardEdit() {
  */
 
 export async function postMinecraftDashboard(client) {
-  const channelId = process.env.DASHBOARD_CHANNEL_ID;
+  const channelId = process.env.MINECRAFT_DASHBOARD_CHANNEL_ID;
   if (!channelId) {
     console.log(
-      "[Minecraft Dashboard] DASHBOARD_CHANNEL_ID is not set. Skipping auto-post.",
+      "[Minecraft Dashboard] MINECRAFT_DASHBOARD_CHANNEL_ID is not set. Skipping auto-post.",
     );
     return;
   }

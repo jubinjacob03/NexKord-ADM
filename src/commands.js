@@ -7,6 +7,7 @@ import {
   SeparatorSpacingSize,
 } from "discord.js";
 import { sendCommand } from "./games/minecraft/pterodactyl.js";
+import { createImpostorLobby } from "./games/amongus/impostor.js";
 import { eReply, EPHEMERAL_COLOR } from "./utils/embed.js";
 import { auditLog } from "./utils/logger.js";
 import { icon } from "./utils/icons.js";
@@ -47,6 +48,10 @@ const COMMAND_SUGGESTIONS = [
   "msh restart",
 ];
 
+/**
+ * Array of slash command definitions for Discord.
+ * @type {Array<SlashCommandBuilder>}
+ */
 export const commandDefinitions = [
   new SlashCommandBuilder()
     .setName("mine")
@@ -69,13 +74,54 @@ export const commandDefinitions = [
         .setName("help")
         .setDescription("Display the available commands cheat sheet"),
     ),
+  new SlashCommandBuilder()
+    .setName("amongus")
+    .setDescription("Among Us custom server management commands")
+    .setDMPermission(false)
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("room")
+        .setDescription("Create a custom Among Us lobby on the NexKord server")
+        .addStringOption((option) =>
+          option
+            .setName("preset")
+            .setDescription("The preset to use for the lobby")
+            .setRequired(true)
+            .addChoices(
+              { name: "Classic", value: "classic" },
+              { name: "Chaos", value: "chaos" },
+              { name: "Ranked", value: "ranked" }
+            )
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("help")
+        .setDescription("Display the Among Us commands and connection guide")
+    ),
 ];
 
 /**
  * Handles incoming application slash commands and autocomplete interactions.
  *
- * @param {import('discord.js').Interaction} interaction - The Discord interaction event context.
+ * @async
+ * @param {import('discord.js').Interaction} interaction - The Discord interaction event context
  * @returns {Promise<void>}
+ *
+ * @description
+ * This function routes slash commands and autocomplete requests to their respective handlers.
+ * It enforces role-based permissions and provides command suggestions for Minecraft commands.
+ *
+ * Supported commands:
+ * - `/mine command <cmd>` - Execute Minecraft console commands
+ * - `/mine help` - Display Minecraft command reference
+ * - `/amongus room <preset>` - Create Among Us lobby
+ * - `/amongus help` - Display Among Us command reference
+ *
+ * @example
+ * client.on('interactionCreate', async (interaction) => {
+ *   await handleSlashCommand(interaction);
+ * });
  */
 export async function handleSlashCommand(interaction) {
   if (interaction.isAutocomplete()) {
@@ -222,6 +268,61 @@ export async function handleSlashCommand(interaction) {
           components: [container],
           flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
         });
+      }
+    } else if (interaction.commandName === "amongus") {
+      const subcommand = interaction.options.getSubcommand();
+
+      if (subcommand === "room") {
+        const preset = interaction.options.getString("preset");
+
+        await interaction.deferReply();
+        try {
+          auditLog("info", "SLASH_COMMAND", `${interaction.user.tag} executed /amongus room ${preset}`);
+
+          const code = await createImpostorLobby(preset);
+
+          const serverIp = process.env.IMPOSTOR_SERVER_IP || "play.nexkord.com";
+          const deepLink = `amongus://init?servername=NexKord&serverip=${serverIp}&serverport=22023&usedtls=false`;
+
+          await interaction.editReply(
+            eReply(
+              "Among Us Custom Lobby Created",
+              `${icon("SUCCESS")} Successfully created a lobby on the NexKord Custom Server!\n\n` +
+              `**Room Code:** \`${code}\`\n` +
+              `**Preset:** \`${preset}\`\n\n` +
+              `### How to Connect\n` +
+              `**PC / Android:** Make sure your \`regionInfo.json\` is set to NexKord.\n` +
+              `**iOS / Android (Auto):** Open Among Us in the background, then click this link:\n` +
+              `[Tap here to connect to NexKord Server](${deepLink})`
+            )
+          );
+        } catch (error) {
+          auditLog("error", "SLASH_COMMAND_FAIL", `${interaction.user.tag} failed /amongus room: ${error.message}`);
+          await interaction.editReply(
+            eReply("Lobby Creation Failed", `${icon("ERROR")} ${error.message}`)
+          );
+        }
+      } else if (subcommand === "help") {
+        const helpEmbed = {
+          color: EPHEMERAL_COLOR,
+          title: `${icon("HELP_HEADER")} Among Us Commands & Info`,
+          description: "Here is how to use the Among Us custom server integration:",
+          fields: [
+            {
+              name: "🎮 Commands",
+              value: "`/amongus room <preset>` - Creates a new lobby on the custom server.",
+            },
+            {
+              name: "📋 Available Presets",
+              value: "**Classic:** 2 Impostors, 15 Players, The Skeld\n**Chaos:** 3 Impostors, 15 Players, Mira HQ\n**Ranked:** 2 Impostors, 15 Players, Polus",
+            },
+            {
+              name: "🔌 How to Connect",
+              value: "**PC / Android:** Set your `regionInfo.json` to point to `play.nexkord.com`.\n**iOS / Android:** Use the deep link provided when a room is created.",
+            }
+          ],
+        };
+        await interaction.reply({ embeds: [helpEmbed], flags: MessageFlags.Ephemeral });
       }
     }
   }

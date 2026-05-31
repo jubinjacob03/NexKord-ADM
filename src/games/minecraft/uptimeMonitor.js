@@ -13,7 +13,6 @@ dotenv.config();
 
 const CACHE_PATH = path.join(process.cwd(), "data", "uptimeCache.json");
 
-// Thresholds in minutes
 const THRESHOLDS = [
   {
     name: "2hours",
@@ -232,7 +231,7 @@ async function checkTick(client) {
 /**
  * Initializes the uptime monitoring system, checking remaining server time
  * and sending alerts when approaching thresholds.
- * @param {import('discord.js').Client} client 
+ * @param {import('discord.js').Client} client
  */
 export function initUptimeMonitor(client) {
   console.log(

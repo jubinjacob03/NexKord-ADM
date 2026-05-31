@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   nexkord-adm:
     build:
@@ -24,3 +22,25 @@ services:
           memory: 512M
         reservations:
           memory: 256M
+
+  impostor:
+    build:
+      context: .
+      dockerfile: Dockerfile.impostor
+    container_name: impostor
+    restart: unless-stopped
+    ports:
+      - "22023:22023/tcp"
+      - "22023:22023/udp"
+      - "22024:22024/tcp"
+      - "22025:22025/tcp"
+    environment:
+      - IMPOSTOR_Server__PublicIp=${IMPOSTOR_SERVER_IP:-127.0.0.1}
+      - IMPOSTOR_HttpServer__Enabled=true
+      - IMPOSTOR_HttpServer__ListenPort=22024
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M

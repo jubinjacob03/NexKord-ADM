@@ -18,7 +18,7 @@ RUN apk add --no-cache \
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV NODE_ENV=production
-ENV NODE_OPTIONS="--max-old-space-size=256 --expose-gc --optimize_for_size --max_semi_space_size=16"
+ENV NODE_OPTIONS="--max-old-space-size=256 --expose-gc"
 
 WORKDIR /usr/src/app
 

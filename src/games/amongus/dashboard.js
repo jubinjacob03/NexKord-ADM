@@ -30,7 +30,7 @@ const DASHBOARD_CHANNEL_ID = process.env.AMONGUS_DASHBOARD_CHANNEL_ID;
  * - Connection instructions for mobile and PC users
  */
 export async function buildAmongUsDashboardPayload() {
-  const container = new ContainerBuilder().setAccentColor(0xff0000);
+  const container = new ContainerBuilder().setAccentColor(0x00ffff);
 
   const bannerGallery = new MediaGalleryBuilder().addItems(
     new MediaGalleryItemBuilder().setURL(

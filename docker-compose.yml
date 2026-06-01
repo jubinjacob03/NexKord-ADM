@@ -40,6 +40,8 @@ services:
       - IMPOSTOR_Server__PublicIp=${IMPOSTOR_SERVER_IP:-127.0.0.1}
       - IMPOSTOR_HttpServer__Enabled=true
       - IMPOSTOR_HttpServer__ListenPort=22024
+      - IMPOSTOR_API_KEY=${IMPOSTOR_API_KEY}
+      - BOT_EVENT_URL=${BOT_EVENT_URL:-http://nexkord-adm:22026/events}
     deploy:
       resources:
         limits:

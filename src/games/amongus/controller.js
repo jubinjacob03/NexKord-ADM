@@ -1,6 +1,5 @@
 import { presets } from "./impostor.js";
 import { auditLog } from "../../utils/logger.js";
-import { buildV2Container } from "../../utils/embed.js";
 import {
   MessageFlags,
   ActionRowBuilder,
@@ -16,6 +15,7 @@ import {
   buildPresetInfoUI,
   buildSuccessUI,
   buildErrorUI,
+  buildLobbyAnnounceUI,
 } from "./ui-builder.js";
 import axios from "axios";
 
@@ -290,15 +290,13 @@ async function createAndAnnounceLobby(interaction, presetName, presetData) {
     try {
       const targetChannel = await interaction.client.channels.fetch(targetChannelId);
       if (targetChannel?.isTextBased()) {
-        const publicContainer = buildV2Container(
-          "Among Us Custom Lobby Created",
-          `<@&${pingRoleId}>\n**${interaction.user.toString()}** has created a new **${presetName.toUpperCase()}** lobby!\n\n` +
-            `**Room Code:** \`${code}\`\n\n` +
-            `### How to Connect\n` +
-            `**PC / Android:** Make sure your \`regionInfo.json\` is set to NexKord.\n` +
-            `**iOS / Android (Auto):** Open Among Us in the background, then click this link:\n` +
-            `[Tap here to connect to NexKord Server](${clickableLink})`,
-          0x00ffff
+        const publicContainer = buildLobbyAnnounceUI(
+          presetName,
+          presetData,
+          code,
+          clickableLink,
+          interaction.user,
+          pingRoleId
         );
 
         await targetChannel.send({

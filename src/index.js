@@ -11,6 +11,8 @@ import {
   postAmongUsDashboard,
 } from "./games/amongus/dashboard.js";
 import { handleAmongUsInteraction } from "./games/amongus/controller.js";
+import { initVoiceManager, handleVoiceStateUpdate } from "./games/amongus/voiceManager.js";
+import { startEventServer, stopEventServer } from "./games/amongus/eventServer.js";
 import { connectWebSocket } from "./games/minecraft/pterodactyl.js";
 import { initUptimeMonitor } from "./games/minecraft/uptimeMonitor.js";
 import { handleSlashCommand } from "./commands.js";
@@ -50,6 +52,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildEmojisAndStickers,
+    GatewayIntentBits.GuildVoiceStates,
   ],
 });
 
@@ -72,8 +75,19 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   initUptimeMonitor(client);
 
+  await initVoiceManager(client);
+  startEventServer();
+
   setRandomPresence(readyClient);
   setInterval(() => setRandomPresence(readyClient), 300000);
+});
+
+client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+  try {
+    await handleVoiceStateUpdate(oldState, newState);
+  } catch (error) {
+    console.error("[VoiceState] handler error:", error);
+  }
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -108,6 +122,7 @@ client.login(process.env.DISCORD_TOKEN);
  */
 const shutdown = () => {
   console.log("[NexKord - ADM] Shutting down gracefully...");
+  stopEventServer();
   client.destroy();
   process.exit(0);
 };

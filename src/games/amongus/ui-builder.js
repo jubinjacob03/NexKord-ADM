@@ -222,6 +222,103 @@ export function buildCustomPresetMenu(presets) {
 }
 
 /**
+ * Builds the public lobby announcement UI
+ * @param {string} presetName - Name of the preset
+ * @param {Object} presetData - Preset configuration
+ * @param {string} code - Room code
+ * @param {string} clickableLink - Connection link
+ * @param {Object} hostUser - Discord user who hosted
+ * @param {string} pingRoleId - Role ID to ping
+ * @returns {ContainerBuilder} Discord container payload
+ */
+export function buildLobbyAnnounceUI(presetName, presetData, code, clickableLink, hostUser, pingRoleId) {
+  const container = new ContainerBuilder().setAccentColor(COLORS.PRIMARY);
+
+  const mapId = validateMapIndex(presetData.map);
+  const mapName = MAP_NAMES[mapId];
+  const mapEmoji = icon(MAP_EMOJIS[mapId]);
+
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      `<@&${pingRoleId}>\n` +
+      `### ${icon("LAUNCH_VIOLET")} Among Us Custom Lobby\n` +
+      `**${hostUser.toString()}** has hosted a new **${presetName.toUpperCase()}** game!`
+    )
+  );
+
+  container.addSeparatorComponents(
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+  );
+
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      `# \` ${code} \``
+    )
+  );
+
+  container.addSeparatorComponents(
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+  );
+
+  const roleCount =
+    (presetData.shapeshifters || 0) +
+    (presetData.phantoms || 0) +
+    (presetData.vipers || 0) +
+    (presetData.scientists || 0) +
+    (presetData.engineers || 0) +
+    (presetData.angels || 0) +
+    (presetData.noisemakers || 0) +
+    (presetData.trackers || 0) +
+    (presetData.detectives || 0);
+
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      `### ${icon("AU_CAT_CORE")} Lobby Info\n\n` +
+      `### \` ${pad("Map")} \` ${padV1(`${mapEmoji} ${mapName}`)}\` ${pad("Imposters")} \` ${padV2(`${icon("AU_IMPOSTOR")} ${presetData.impostors || 0}`)}\` ${pad("Players")} \` ${icon("MEMBERS")} ${presetData.maxPlayers || 0}\n\n` +
+      `### \` ${pad("Speed")} \` ${padV1(`${icon("MICRO_YELLOW")} ${presetData.playerSpeed || 1.0}x`)}\` ${pad("Cooldown")} \` ${padV2(`${icon("TIMER")} ${presetData.killCooldown || 0}s`)}\` ${pad("Roles")} \` ${icon("ROLE_SHAPESHIFTER")} ${roleCount}`
+    )
+  );
+
+  container.addSeparatorComponents(
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+  );
+
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      `### ${icon("HELP_WORLD")} How to Connect\n` +
+      `**PC / Android:** Make sure your \`regionInfo.json\` is set to NexKord.\n` +
+      `**iOS / Android (Auto):** Open Among Us in the background, then click the button below.`
+    )
+  );
+
+  if (clickableLink.startsWith("http")) {
+    container.addActionRowComponents(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setLabel("Connect to Lobby")
+          .setURL(clickableLink)
+          .setStyle(ButtonStyle.Link)
+          .setEmoji(emojiObj("LAUNCH_GREEN"))
+      )
+    );
+  } else {
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`[Tap here to connect to NexKord Server](${clickableLink})`)
+    );
+  }
+
+  const ts = Math.floor(Date.now() / 1000);
+  container.addSeparatorComponents(
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+  );
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(`-# NexKord Server · <t:${ts}:f>`)
+  );
+
+  return container;
+}
+
+/**
  * Builds preset builder UI
  * @param {Object} state - Current builder state
  * @returns {Object} Discord message payload

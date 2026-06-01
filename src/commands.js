@@ -7,10 +7,12 @@ import {
   SeparatorSpacingSize,
 } from "discord.js";
 import { sendCommand } from "./games/minecraft/pterodactyl.js";
-import { createImpostorLobby } from "./games/amongus/impostor.js";
+import { createImpostorLobby, presets } from "./games/amongus/impostor.js";
+import { setMapping, removeMapping } from "./games/amongus/playerMap.js";
 import { eReply, EPHEMERAL_COLOR } from "./utils/embed.js";
 import { auditLog } from "./utils/logger.js";
 import { icon } from "./utils/icons.js";
+import { buildLobbyAnnounceUI } from "./games/amongus/ui-builder.js";
 
 const COMMAND_SUGGESTIONS = [
   "op ",
@@ -98,6 +100,39 @@ export const commandDefinitions = [
       subcommand
         .setName("help")
         .setDescription("Display the Among Us commands and connection guide")
+    )
+    .addSubcommandGroup((group) =>
+      group
+        .setName("map")
+        .setDescription("Manage in-game name to Discord user mappings")
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName("add")
+            .setDescription("Map an in-game player name to a Discord user")
+            .addStringOption((option) =>
+              option
+                .setName("ingame_name")
+                .setDescription("The exact in-game player name")
+                .setRequired(true)
+            )
+            .addUserOption((option) =>
+              option
+                .setName("user")
+                .setDescription("The Discord user to map to")
+                .setRequired(true)
+            )
+        )
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName("remove")
+            .setDescription("Remove an in-game name mapping")
+            .addStringOption((option) =>
+              option
+                .setName("ingame_name")
+                .setDescription("The in-game player name to unmap")
+                .setRequired(true)
+            )
+        )
     ),
 ];
 
@@ -270,7 +305,31 @@ export async function handleSlashCommand(interaction) {
         });
       }
     } else if (interaction.commandName === "amongus") {
+      const subcommandGroup = interaction.options.getSubcommandGroup(false);
       const subcommand = interaction.options.getSubcommand();
+
+      if (subcommandGroup === "map") {
+        if (subcommand === "add") {
+          const inGameName = interaction.options.getString("ingame_name");
+          const user = interaction.options.getUser("user");
+          const ok = await setMapping(inGameName, user.id);
+          auditLog("info", "SLASH_COMMAND", `${interaction.user.tag} mapped '${inGameName}' -> ${user.tag}`);
+          await interaction.reply(
+            ok
+              ? eReply("Mapping Saved", `${icon("SUCCESS")} Mapped in-game name \`${inGameName}\` to ${user.toString()}.`)
+              : eReply("Mapping Failed", `${icon("ERROR")} Could not save the mapping. Check the logs.`)
+          );
+        } else if (subcommand === "remove") {
+          const inGameName = interaction.options.getString("ingame_name");
+          const removed = await removeMapping(inGameName);
+          await interaction.reply(
+            removed
+              ? eReply("Mapping Removed", `${icon("SUCCESS")} Removed mapping for \`${inGameName}\`.`)
+              : eReply("Not Found", `${icon("ERROR")} No mapping exists for \`${inGameName}\`.`)
+          );
+        }
+        return;
+      }
 
       if (subcommand === "room") {
         const preset = interaction.options.getString("preset");
@@ -280,22 +339,25 @@ export async function handleSlashCommand(interaction) {
           auditLog("info", "SLASH_COMMAND", `${interaction.user.tag} executed /amongus room ${preset}`);
 
           const code = await createImpostorLobby(preset);
+          const presetData = presets[preset] || presets.classic;
 
           const serverIp = process.env.IMPOSTOR_SERVER_IP || "play.nexkord.com";
           const deepLink = `amongus://init?servername=NexKord&serverip=${serverIp}&serverport=22023&usedtls=false`;
+          const pingRoleId = process.env.AMONGUS_PING_ROLE_ID || "1510515943103664218";
 
-          await interaction.editReply(
-            eReply(
-              "Among Us Custom Lobby Created",
-              `${icon("SUCCESS")} Successfully created a lobby on the NexKord Custom Server!\n\n` +
-              `**Room Code:** \`${code}\`\n` +
-              `**Preset:** \`${preset}\`\n\n` +
-              `### How to Connect\n` +
-              `**PC / Android:** Make sure your \`regionInfo.json\` is set to NexKord.\n` +
-              `**iOS / Android (Auto):** Open Among Us in the background, then click this link:\n` +
-              `[Tap here to connect to NexKord Server](${deepLink})`
-            )
+          const publicContainer = buildLobbyAnnounceUI(
+            preset,
+            presetData,
+            code,
+            deepLink,
+            interaction.user,
+            pingRoleId
           );
+
+          await interaction.editReply({
+            components: [publicContainer],
+            flags: MessageFlags.IsComponentsV2,
+          });
         } catch (error) {
           auditLog("error", "SLASH_COMMAND_FAIL", `${interaction.user.tag} failed /amongus room: ${error.message}`);
           await interaction.editReply(

@@ -22,8 +22,10 @@ namespace ImpostorApiPlugin
     public class ApiPlugin : PluginBase
     {
         private readonly ILogger<ApiPlugin> _logger;
+        private readonly IEventManager _eventManager;
         private readonly IGameManager _gameManager;
         private HttpListener _listener;
+        private IDisposable _eventUnregister;
         private bool _isRunning;
 
         /// <summary>
@@ -35,17 +37,21 @@ namespace ImpostorApiPlugin
         public ApiPlugin(ILogger<ApiPlugin> logger, IEventManager eventManager, IGameManager gameManager)
         {
             _logger = logger;
+            _eventManager = eventManager;
             _gameManager = gameManager;
         }
 
         /// <summary>
-        /// Enables the plugin and starts the HTTP listener on port 22025.
+        /// Enables the plugin, registers the game-event listener, and starts the HTTP listener on port 22025.
         /// </summary>
         /// <returns>A ValueTask representing the asynchronous operation</returns>
         public override ValueTask EnableAsync()
         {
             _logger.LogInformation("NexKord API Plugin is enabled.");
             _isRunning = true;
+
+            _eventUnregister = _eventManager.RegisterListener(new GameEventListener(_logger));
+
             _listener = new HttpListener();
             _listener.Prefixes.Add("http://*:22025/api/lobby/create/");
             _listener.Start();
@@ -54,13 +60,14 @@ namespace ImpostorApiPlugin
         }
 
         /// <summary>
-        /// Disables the plugin and stops the HTTP listener.
+        /// Disables the plugin, unregisters the event listener, and stops the HTTP listener.
         /// </summary>
         /// <returns>A ValueTask representing the asynchronous operation</returns>
         public override ValueTask DisableAsync()
         {
             _logger.LogInformation("NexKord API Plugin is disabled.");
             _isRunning = false;
+            _eventUnregister?.Dispose();
             _listener?.Stop();
             return default;
         }

@@ -90,7 +90,7 @@ export async function connectWebSocket(handlers) {
             wsInstance.terminate();
             return;
           }
-          wsInstance.ping();
+          wsInstance.send(JSON.stringify({ event: "ping" }));
         }
       }, 15000);
     });
@@ -104,9 +104,12 @@ export async function connectWebSocket(handlers) {
         const message = JSON.parse(data);
         if (message.event === "auth success") {
           console.log(
-            "[Pterodactyl WS] Authenticated. Requesting historical logs...",
+            "[Pterodactyl WS] Authenticated. Requesting historical logs and live stats...",
           );
           wsInstance.send(JSON.stringify({ event: "send logs", args: [null] }));
+          wsInstance.send(JSON.stringify({ event: "send stats", args: [null] }));
+        } else if (message.event === "pong") {
+          missedPings = 0;
         } else if (message.event === "stats") {
           if (!onStatsUpdate) return;
           const stats = JSON.parse(message.args[0]);

@@ -78,6 +78,11 @@ export function startEventServer() {
   });
 
   server.on("error", (err) => {
+    if (err.code === "EADDRINUSE") {
+      auditLog("error", "EVENT_SERVER", `Port ${EVENT_PORT} already in use; event server disabled`);
+      server = null;
+      return;
+    }
     auditLog("error", "EVENT_SERVER", `Server error: ${err.message}`);
   });
 

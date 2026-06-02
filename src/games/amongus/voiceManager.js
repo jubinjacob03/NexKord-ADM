@@ -1,10 +1,10 @@
 import fs from "fs/promises";
 import path from "path";
-import { PermissionsBitField } from "discord.js";
 import { auditLog } from "../../utils/logger.js";
 import { resolveDiscordId } from "./playerMap.js";
 
 const VOICE_STATE_FILE = path.join(process.cwd(), "data", "au_voice_state.json");
+const VOICE_STATE_TMP = `${VOICE_STATE_FILE}.tmp`;
 const GAME_VC_ID = process.env.AMONGUS_GAME_VC_ID;
 const SESSION_MAX_MS = 60 * 60 * 1000;
 
@@ -24,13 +24,52 @@ const sessions = new Map();
 const applied = new Map();
 
 /**
- * Persists the applied-overwrites map to disk (crash-safe source of truth).
+ * Per-user serialization queue. Guarantees enforce/restore for one user never
+ * interleave (e.g. a kill event racing a voice-move event).
+ * @type {Map<string, Promise<void>>}
+ */
+const userLocks = new Map();
+
+/**
+ * Runs a task with exclusive access per user, serializing concurrent calls so
+ * enforce/restore for one user never interleave. Cleans up the lock entry once
+ * the queue drains to avoid unbounded growth.
+ * @param {string} userId
+ * @param {() => Promise<void>} task
+ * @returns {Promise<void>}
+ */
+function withUserLock(userId, task) {
+  const prev = userLocks.get(userId) || Promise.resolve();
+  const run = prev.then(task, task);
+  const chain = run.catch(() => {});
+  userLocks.set(userId, chain);
+  chain.then(() => {
+    if (userLocks.get(userId) === chain) {
+      userLocks.delete(userId);
+    }
+  });
+  return run;
+}
+
+/**
+ * Confirms a VC id matches the single configured game VC (defense-in-depth so a
+ * stale persisted entry can never touch an arbitrary channel).
+ * @param {string} vcId
+ * @returns {boolean}
+ */
+function isConfiguredVc(vcId) {
+  return Boolean(GAME_VC_ID) && vcId === GAME_VC_ID;
+}
+
+/**
+ * Atomically persists the applied-overwrites map to disk (temp file + rename).
  */
 async function persistApplied() {
   try {
     const obj = Object.fromEntries(applied);
     await fs.mkdir(path.dirname(VOICE_STATE_FILE), { recursive: true });
-    await fs.writeFile(VOICE_STATE_FILE, JSON.stringify(obj, null, 2), "utf-8");
+    await fs.writeFile(VOICE_STATE_TMP, JSON.stringify(obj, null, 2), "utf-8");
+    await fs.rename(VOICE_STATE_TMP, VOICE_STATE_FILE);
   } catch (error) {
     auditLog("error", "VOICE_STATE", `Failed to persist voice state: ${error.message}`);
   }
@@ -70,48 +109,53 @@ async function fetchVoiceChannel(vcId) {
 }
 
 /**
- * Applies a per-member push-to-talk deny (UseVAD) on the given VC.
- * No-op if the member is not currently connected to that VC. Idempotent.
+ * Applies a per-member push-to-talk deny (UseVAD) on the configured VC.
+ * No-op if the member is not connected to that VC. Serialized per user, idempotent.
  * @param {string} userId - Discord user ID
  * @param {string} vcId - Voice channel ID
  */
 async function enforceUser(userId, vcId) {
-  const channel = await fetchVoiceChannel(vcId);
-  if (!channel) return;
-  if (!channel.members.has(userId)) return;
+  if (!isConfiguredVc(vcId)) return;
+  return withUserLock(userId, async () => {
+    if (applied.get(userId) === vcId) return;
+    const channel = await fetchVoiceChannel(vcId);
+    if (!channel || !channel.members.has(userId)) return;
 
-  try {
-    await channel.permissionOverwrites.edit(userId, { UseVAD: false });
-    applied.set(userId, vcId);
-    await persistApplied();
-    auditLog("info", "VOICE_ENFORCE", `Push-to-talk enforced for ${userId} in ${vcId}`);
-  } catch (error) {
-    auditLog("error", "VOICE_ENFORCE", `Failed for ${userId}: ${error.message}`);
-  }
+    try {
+      await channel.permissionOverwrites.edit(userId, { UseVAD: false });
+      applied.set(userId, vcId);
+      await persistApplied();
+      auditLog("info", "VOICE_ENFORCE", `Push-to-talk enforced for ${userId} in ${vcId}`);
+    } catch (error) {
+      auditLog("error", "VOICE_ENFORCE", `Failed for ${userId}: ${error.message}`);
+    }
+  });
 }
 
 /**
  * Removes the push-to-talk deny for a user, restoring free voice activity.
- * Idempotent: a missing overwrite is treated as success.
+ * Serialized per user. Idempotent: a missing overwrite is treated as success.
  * @param {string} userId - Discord user ID
  * @param {string} [vcIdOverride] - VC to clear (defaults to the recorded one)
  */
 async function restoreUser(userId, vcIdOverride) {
-  const vcId = vcIdOverride || applied.get(userId);
-  if (vcId) {
-    const channel = await fetchVoiceChannel(vcId);
-    if (channel) {
-      try {
-        await channel.permissionOverwrites.delete(userId);
-        auditLog("info", "VOICE_RESTORE", `Push-to-talk restored for ${userId} in ${vcId}`);
-      } catch (error) {
-        auditLog("warn", "VOICE_RESTORE", `Delete overwrite failed for ${userId}: ${error.message}`);
+  return withUserLock(userId, async () => {
+    const vcId = vcIdOverride || applied.get(userId);
+    if (vcId) {
+      const channel = await fetchVoiceChannel(vcId);
+      if (channel) {
+        try {
+          await channel.permissionOverwrites.delete(userId);
+          auditLog("info", "VOICE_RESTORE", `Push-to-talk restored for ${userId} in ${vcId}`);
+        } catch (error) {
+          auditLog("warn", "VOICE_RESTORE", `Delete overwrite failed for ${userId}: ${error.message}`);
+        }
       }
     }
-  }
-  if (applied.delete(userId)) {
-    await persistApplied();
-  }
+    if (applied.delete(userId)) {
+      await persistApplied();
+    }
+  });
 }
 
 /**
@@ -126,10 +170,12 @@ async function endSession(gameCode, reason) {
   clearTimeout(session.timer);
   sessions.delete(gameCode);
 
+  let restored = 0;
   for (const userId of session.dead) {
     await restoreUser(userId, session.vcId);
+    restored++;
   }
-  auditLog("info", "VOICE_SESSION", `Ended session ${gameCode} (${reason}); restored ${session.dead.size} player(s)`);
+  auditLog("info", "VOICE_SESSION", `Ended session ${gameCode} (${reason}); restored ${restored} player(s)`);
 }
 
 /**
@@ -158,7 +204,8 @@ async function markDead(gameCode, playerName, cause) {
  */
 export async function handleGameEvent(event) {
   if (!event || typeof event.type !== "string") return;
-  const gameCode = event.gameCode || "UNKNOWN";
+  const gameCode = typeof event.gameCode === "string" && event.gameCode ? event.gameCode : "UNKNOWN";
+  const playerName = typeof event.playerName === "string" ? event.playerName : null;
 
   switch (event.type) {
     case "game_start": {
@@ -166,9 +213,12 @@ export async function handleGameEvent(event) {
         auditLog("warn", "VOICE_MANAGER", "AMONGUS_GAME_VC_ID not set; voice enforcement disabled");
         return;
       }
-      const existing = sessions.get(gameCode);
-      if (existing) clearTimeout(existing.timer);
-      const timer = setTimeout(() => endSession(gameCode, "auto-expiry"), SESSION_MAX_MS);
+      // If this code was already active, fully restore it before re-opening so a
+      // re-used lobby code can never strand a previously-enforced player.
+      await endSession(gameCode, "restart");
+      const timer = setTimeout(() => {
+        endSession(gameCode, "auto-expiry").catch(() => {});
+      }, SESSION_MAX_MS);
       if (typeof timer.unref === "function") timer.unref();
       sessions.set(gameCode, { vcId: GAME_VC_ID, dead: new Set(), startedAt: Date.now(), timer });
       auditLog("info", "VOICE_SESSION", `Started session ${gameCode} bound to VC ${GAME_VC_ID}`);
@@ -177,13 +227,13 @@ export async function handleGameEvent(event) {
 
     case "kill":
     case "exile":
-      if (event.playerName) await markDead(gameCode, event.playerName, event.type);
+      if (playerName) await markDead(gameCode, playerName, event.type);
       break;
 
     case "leave": {
       const session = sessions.get(gameCode);
-      if (session && event.playerName) {
-        const userId = await resolveDiscordId(event.playerName);
+      if (session && playerName) {
+        const userId = await resolveDiscordId(playerName);
         if (userId && session.dead.delete(userId)) {
           await restoreUser(userId, session.vcId);
         }
@@ -208,19 +258,20 @@ export async function handleGameEvent(event) {
 export async function handleVoiceStateUpdate(oldState, newState) {
   const userId = newState.id;
 
-  const deadSession = [...sessions.values()].find((s) => s.dead.has(userId));
-
-  // Left or moved out of the game VC -> restore.
-  if (applied.has(userId)) {
-    const vcId = applied.get(userId);
-    if (newState.channelId !== vcId) {
-      await restoreUser(userId, vcId);
-    }
+  // Left or moved out of the VC we enforced on -> restore.
+  const enforcedVc = applied.get(userId);
+  if (enforcedVc && newState.channelId !== enforcedVc) {
+    await restoreUser(userId, enforcedVc);
   }
 
   // Rejoined the game VC while still dead in an active session -> re-apply.
-  if (deadSession && newState.channelId === deadSession.vcId && !applied.has(userId)) {
-    await enforceUser(userId, deadSession.vcId);
+  if (newState.channelId && newState.channelId === GAME_VC_ID && !applied.has(userId)) {
+    const deadSession = [...sessions.values()].find(
+      (s) => s.vcId === newState.channelId && s.dead.has(userId),
+    );
+    if (deadSession) {
+      await enforceUser(userId, deadSession.vcId);
+    }
   }
 }
 
@@ -234,10 +285,13 @@ export async function reconcile() {
   if (entries.length === 0) return;
 
   auditLog("info", "VOICE_RECONCILE", `Reconciling ${entries.length} stale overwrite(s) from previous run`);
+  // Seed the in-memory map so restoreUser can locate and clear each entry.
+  for (const [userId, vcId] of entries) {
+    applied.set(userId, vcId);
+  }
   for (const [userId, vcId] of entries) {
     await restoreUser(userId, vcId);
   }
-  applied.clear();
   await persistApplied();
 }
 
@@ -253,3 +307,4 @@ export async function initVoiceManager(discordClient) {
   await reconcile();
   auditLog("info", "VOICE_MANAGER", "Voice manager initialized");
 }
+

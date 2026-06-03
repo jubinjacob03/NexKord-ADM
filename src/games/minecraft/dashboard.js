@@ -24,20 +24,43 @@ import { eReply } from "../../utils/embed.js";
 import { icon } from "../../utils/icons.js";
 
 /**
+ * Resolves the freshest available server stats for rendering.
+ * Prefers live WebSocket stats; if those are missing or older than the staleness
+ * threshold, falls back to a direct REST `/resources` fetch so the dashboard
+ * never renders stale resource metrics.
+ *
+ * @param {Object|null} preferred - Stats supplied by the caller (live WS frame).
+ * @returns {Promise<Object|null>} The freshest status object, or null if unreachable.
+ */
+async function resolveFreshStatus(preferred) {
+  const age = Date.now() - pendingStatsTimestamp;
+  if (preferred && preferred.resources && age <= STATS_STALE_MS) {
+    return preferred;
+  }
+
+  try {
+    const fresh = await getServerStatus();
+    if (fresh && fresh.resources) {
+      pendingUpdateStats = fresh;
+      pendingStatsTimestamp = Date.now();
+      return fresh;
+    }
+  } catch (err) {
+    auditLog("warn", "DASHBOARD", `Stats REST fallback failed: ${err.message}`);
+  }
+
+  return preferred || null;
+}
+
+/**
  * Constructs the Discord UI payload representing the current Minecraft server state,
  * including metrics, power controls, and live console logs.
  *
- * @param {Object|null} [status=null] - Pre-fetched server status data. If null, it will be fetched dynamically.
+ * @param {Object|null} [status=null] - Pre-fetched server status data. If null or stale, fresh data is resolved.
  * @returns {Promise<Object>} The payload object to be passed to Discord message creation/edit methods.
  */
 async function buildDashboardPayload(status = null) {
-  if (!status) {
-    try {
-      status = await getServerStatus();
-    } catch (err) {
-      status = null;
-    }
-  }
+  status = await resolveFreshStatus(status);
 
   const state = status?.current_state || "offline";
   const isRunning = state === "running";
@@ -210,10 +233,12 @@ async function buildDashboardPayload(status = null) {
 let activeDashboardMessage = null;
 let lastUpdateTimestamp = 0;
 let pendingUpdateStats = null;
+let pendingStatsTimestamp = 0;
 let updateTimer = null;
 const consoleBuffer = [];
 const MAX_CONSOLE_LINES = 5;
 const MAX_HISTORY = 200;
+const STATS_STALE_MS = 12000;
 let scrollOffset = 0;
 let lastCommandTimestamp = 0;
 let lastPowerActionTimestamp = 0;
@@ -373,6 +398,7 @@ export async function updateDashboardWithConsole(rawLog) {
 export async function updateDashboardWithStats(stats) {
   if (!activeDashboardMessage) return;
   pendingUpdateStats = stats;
+  pendingStatsTimestamp = Date.now();
   queueDashboardUpdate();
 }
 

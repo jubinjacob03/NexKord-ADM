@@ -21,8 +21,10 @@ let wsInstance = null;
 let reconnectTimer = null;
 let reconnectDelay = 5000;
 let pingInterval = null;
+let statsInterval = null;
 let missedPings = 0;
 const MAX_RECONNECT_DELAY = 60000;
+const STATS_POLL_INTERVAL = 4000;
 
 const HIBERNATION_SIGNATURES = [
   "MINECRAFT SERVER IS OFFLINE!",
@@ -55,6 +57,7 @@ export async function connectWebSocket(handlers) {
 
   clearTimeout(reconnectTimer);
   clearInterval(pingInterval);
+  clearInterval(statsInterval);
 
   if (wsInstance) {
     wsInstance.removeAllListeners();
@@ -108,6 +111,13 @@ export async function connectWebSocket(handlers) {
           );
           wsInstance.send(JSON.stringify({ event: "send logs", args: [null] }));
           wsInstance.send(JSON.stringify({ event: "send stats", args: [null] }));
+
+          clearInterval(statsInterval);
+          statsInterval = setInterval(() => {
+            if (wsInstance && wsInstance.readyState === WebSocket.OPEN) {
+              wsInstance.send(JSON.stringify({ event: "send stats", args: [null] }));
+            }
+          }, STATS_POLL_INTERVAL);
         } else if (message.event === "pong") {
           missedPings = 0;
         } else if (message.event === "stats") {
@@ -183,6 +193,8 @@ export async function connectWebSocket(handlers) {
       console.log(
         `[Pterodactyl WS] Connection closed. Reconnecting in ${reconnectDelay}ms...`,
       );
+      clearInterval(pingInterval);
+      clearInterval(statsInterval);
       clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(() => {
         reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);

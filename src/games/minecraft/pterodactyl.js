@@ -93,7 +93,7 @@ export async function connectWebSocket(handlers) {
             wsInstance.terminate();
             return;
           }
-          wsInstance.send(JSON.stringify({ event: "ping" }));
+          wsInstance.ping();
         }
       }, 15000);
     });

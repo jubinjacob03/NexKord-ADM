@@ -124,7 +124,7 @@ export async function buildAmongUsDashboardPayload() {
 
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `${icon("EDITOR")}  **Advanced Options**\n`
+      `### ${icon("EDITOR")}  Advanced Options`
     )
   );
 

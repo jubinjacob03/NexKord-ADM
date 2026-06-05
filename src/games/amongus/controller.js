@@ -16,6 +16,7 @@ import {
   buildSuccessUI,
   buildErrorUI,
   buildLobbyAnnounceUI,
+  buildHelpUI,
 } from "./ui-builder.js";
 import axios from "axios";
 
@@ -226,8 +227,8 @@ async function createAndAnnounceLobby(interaction, presetName, presetData) {
           crewLightMod: presetData.crewVision || 1.0,
           impostorLightMod: presetData.impVision || 1.5,
           killCooldown: presetData.killCooldown,
-          emergencyMeetings: presetData.emergencyMeetings || 1,
-          emergencyCooldown: presetData.emergencyCooldown || 15,
+          numEmergencyMeetings: presetData.emergencyMeetings || presetData.meetings || 1,
+          emergencyCooldown: presetData.emergencyCooldown || presetData.meetingCooldown || 15,
           discussionTime: presetData.discussionTime || 15,
           votingTime: presetData.votingTime || 120,
           numCommonTasks: presetData.commonTasks || 1,
@@ -424,6 +425,12 @@ async function handleButtonInteraction(interaction) {
   if (customId === "au_custom_menu") {
     const presets = await getCustomPresets();
     const payload = buildCustomPresetMenu(presets);
+    await safeRespond(interaction, payload, isFromEphemeral(interaction));
+    return true;
+  }
+
+  if (customId === "au_help") {
+    const payload = buildHelpUI();
     await safeRespond(interaction, payload, isFromEphemeral(interaction));
     return true;
   }

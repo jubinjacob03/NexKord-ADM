@@ -91,8 +91,10 @@ export const commandDefinitions = [
             .setRequired(true)
             .addChoices(
               { name: "Classic", value: "classic" },
+              { name: "Chill", value: "chill" },
+              { name: "Trio-Mess", value: "trio_mess" },
               { name: "Chaos", value: "chaos" },
-              { name: "Ranked", value: "ranked" }
+              { name: "Hardcore", value: "hardcore" }
             )
         )
     )
@@ -376,7 +378,7 @@ export async function handleSlashCommand(interaction) {
             },
             {
               name: "📋 Available Presets",
-              value: "**Classic:** 2 Impostors, 15 Players, The Skeld\n**Chaos:** 3 Impostors, 15 Players, Mira HQ\n**Ranked:** 2 Impostors, 15 Players, Polus",
+              value: "**Classic:** 2 Impostors, 15 Players, The Skeld\n**Chill:** 2 Impostors, 15 Players, 1 Angel\n**Trio-Mess:** 3 Impostors, 15 Players, 2 Angels\n**Chaos:** 2 Impostors, 15 Players, Shapeshifters\n**Hardcore:** 2 Impostors, 15 Players, Advanced Roles",
             },
             {
               name: "🔌 How to Connect",

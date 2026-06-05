@@ -48,13 +48,6 @@ export function logAmongUsConsole(message) {
 export async function buildAmongUsDashboardPayload() {
   const container = new ContainerBuilder().setAccentColor(0x00ffff);
 
-  container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(
-      `### ${icon("HELP_HEADER")}⠀AMONG US • NexKord Server\n` +
-      `Welcome to the NexKord custom Among Us server! Create lobbies with custom roles and settings.`
-    )
-  );
-
   const bannerGallery = new MediaGalleryBuilder().addItems(
     new MediaGalleryItemBuilder().setURL(
       `https://raw.githubusercontent.com/jubinjacob03/jubinjacob03/main/Public-CDN/au-banner.png?v=${Date.now()}`
@@ -148,6 +141,11 @@ export async function buildAmongUsDashboardPayload() {
         .setCustomId("au_custom_menu")
         .setLabel("Custom Presets")
         .setEmoji(icon("EDITOR"))
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId("au_help")
+        .setLabel("Help / FAQ")
+        .setEmoji(icon("HELP_HEADER"))
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId("au_reset")

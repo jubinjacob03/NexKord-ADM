@@ -1118,3 +1118,44 @@ export function buildErrorUI(title, message) {
     flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
   };
 }
+
+/**
+ * Builds the Help/FAQ UI
+ * @returns {Object} Discord message payload
+ */
+export function buildHelpUI() {
+  const container = new ContainerBuilder().setAccentColor(COLORS.PRIMARY);
+
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      `### ${icon("HELP_HEADER")} NexKord Among Us FAQ\n\n` +
+      `**Q: How does the connection work?**\n` +
+      `**A:** NexKord runs a custom Among Us server. When you click "Connect to Lobby", it uses a deep-link (\`amongus://init...\`) that temporarily configures your game to connect to our private server instead of InnerSloth's.\n\n` +
+      `**Q: Is it safe to play on NexKord?**\n` +
+      `**A:** Yes, 100% safe. We only change the network endpoint your game connects to. Your account data, cosmetics, and game files remain perfectly secure, and playing on private servers is fully allowed.\n\n` +
+      `**Q: How do I reset my game back to normal?**\n` +
+      `**A:** You can click the **Reset** button on the dashboard for instructions, or simply open Among Us, go to **Online**, click the **Globe Icon** in the bottom right, and select a default region (North America, Europe, or Asia).\n\n` +
+      `**Q: How do I enable Free Chat in my lobby?**\n` +
+      `**A:** Chat mode is determined by the **first person who joins the room (the Host)**. To ensure the lobby is Free Chat, the host must have an authenticated 13+ account with "Free or Quick Chat" enabled in their in-game Data settings. If the first person to join has a guest or underage account, the entire room will be restricted to Quick Chat Only.`
+    )
+  );
+
+  container.addSeparatorComponents(
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+  );
+
+  const backBtn = new ButtonBuilder()
+    .setCustomId("au_back_to_main")
+    .setLabel("Back to Dashboard")
+    .setEmoji(emojiObj("SCROLL_UP"))
+    .setStyle(ButtonStyle.Secondary);
+
+  container.addActionRowComponents(
+    new ActionRowBuilder().addComponents(backBtn)
+  );
+
+  return {
+    components: [container],
+    flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+  };
+}

@@ -43,6 +43,7 @@ export async function executeAutoRenew(client) {
   isRenewing = true;
   auditLog("info", "AUTORENEW", "Starting headless auto-renewal sequence...");
 
+  const channelId = process.env.MINECRAFT_DASHBOARD_CHANNEL_ID;
   const channel = client.channels.cache.get(channelId);
 
   let browser = null;

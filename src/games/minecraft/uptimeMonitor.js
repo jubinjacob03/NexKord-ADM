@@ -155,7 +155,7 @@ async function syncWithPuppeteer(cache) {
 
   if (!timeStr) {
     console.log("[UptimeMonitor] ❌ Scrape failed. Retrying next tick.");
-    return cache;
+    return { cache, success: false };
   }
 
   const newMins = parseTimeToMinutes(timeStr);
@@ -173,7 +173,7 @@ async function syncWithPuppeteer(cache) {
 
   cache.scrapedMins = newMins;
   cache.lastChecked = Date.now();
-  return cache;
+  return { cache, success: true };
 }
 
 async function checkTick(client) {
@@ -182,8 +182,9 @@ async function checkTick(client) {
   const minutesSinceLastCheck = (Date.now() - cache.lastChecked) / 60000;
   let estimatedMins = cache.scrapedMins - minutesSinceLastCheck;
 
-  if (!cache.lastChecked || estimatedMins < -100 || estimatedMins > 1000) {
-    cache = await syncWithPuppeteer(cache);
+  if (!cache.lastChecked || estimatedMins < -100 || minutesSinceLastCheck > 60) {
+    const result = await syncWithPuppeteer(cache);
+    cache = result.cache;
     writeCache(cache);
     return;
   }
@@ -197,16 +198,21 @@ async function checkTick(client) {
         `[UptimeMonitor] Estimated time (~${Math.floor(estimatedMins)}m) is approaching the ${t.name} threshold.`,
       );
 
-      cache = await syncWithPuppeteer(cache);
+      const result = await syncWithPuppeteer(cache);
+      cache = result.cache;
 
-      for (const upper of THRESHOLDS) {
-        if (upper.mins >= t.mins) {
-          cache.syncs[upper.name] = true;
+      if (result.success) {
+        for (const upper of THRESHOLDS) {
+          if (upper.mins >= t.mins) {
+            cache.syncs[upper.name] = true;
+          }
         }
+        estimatedMins = cache.scrapedMins;
+      } else {
+        console.log(`[UptimeMonitor] Sync failed for ${t.name} threshold. Will retry next tick.`);
       }
+      
       writeCache(cache);
-
-      estimatedMins = cache.scrapedMins;
       break;
     }
   }

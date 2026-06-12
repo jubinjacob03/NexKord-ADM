@@ -16,6 +16,11 @@ import { startEventServer, stopEventServer } from "./games/amongus/eventServer.j
 import { connectWebSocket } from "./games/minecraft/pterodactyl.js";
 import { initUptimeMonitor } from "./games/minecraft/uptimeMonitor.js";
 import { handleSlashCommand } from "./commands.js";
+import {
+  initAkinator,
+  handleAkinatorMessage,
+  handleAkinatorButton,
+} from "./games/akinator/game.js";
 import { initIcons } from "./utils/icons.js";
 
 dotenv.config();
@@ -51,6 +56,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildEmojisAndStickers,
     GatewayIntentBits.GuildVoiceStates,
   ],
@@ -78,6 +84,8 @@ client.once(Events.ClientReady, async (readyClient) => {
   await initVoiceManager(client);
   startEventServer();
 
+  initAkinator(client);
+
   setRandomPresence(readyClient);
   setInterval(() => setRandomPresence(readyClient), 300000);
 });
@@ -90,11 +98,21 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   }
 });
 
+client.on(Events.MessageCreate, async (message) => {
+  try {
+    await handleAkinatorMessage(message);
+  } catch (error) {
+    console.error("[Akinator] message handler error:", error);
+  }
+});
+
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand() || interaction.isAutocomplete()) {
       await handleSlashCommand(interaction);
     } else {
+      const handledByAkinator = await handleAkinatorButton(interaction);
+      if (handledByAkinator) return;
       const handledByAmongUs = await handleAmongUsInteraction(interaction);
       if (!handledByAmongUs) {
         await handleMinecraftInteraction(interaction);

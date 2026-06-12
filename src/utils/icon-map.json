@@ -1,98 +1,442 @@
 {
-  "SUCCESS": { "serverEmojiName": "iconSuccess", "fallback": "✅" },
-  "SAVED": { "serverEmojiName": "iconSaved", "fallback": "✅" },
-  "DONE": { "serverEmojiName": "iconAction", "fallback": "✅" },
-  "ERROR": { "serverEmojiName": "iconError", "fallback": "❌" },
-  "WARNING": { "serverEmojiName": "iconWarning", "fallback": "⚠️" },
-  "PENDING": { "serverEmojiName": "iconPending", "fallback": "⏳" },
-  "TIMER": { "serverEmojiName": "iconTimer", "fallback": "⏱️" },
-  "BOT": { "serverEmojiName": "iconBot", "fallback": "🤖" },
-  "UPTIME": { "serverEmojiName": "iconUptime", "fallback": "📡" },
-  "MEMBERS": { "serverEmojiName": "iconMembers", "fallback": "👥" },
-  "CHANNELS": { "serverEmojiName": "iconChannel", "fallback": "💬" },
-  "OFFLINE": { "serverEmojiName": "offline", "fallback": "⚫" },
-  "LOCK": { "serverEmojiName": "iconLock", "fallback": "🔒" },
-  "BELL": { "serverEmojiName": "iconBell", "fallback": "🔔" },
-  "KEYLOCK": { "serverEmojiName": "iconKey", "fallback": "🔐" },
-  "MEMO": { "serverEmojiName": "iconMemo", "fallback": "📝" },
-  "CARD": { "serverEmojiName": "iconCard", "fallback": "💳" },
-  "TICKET": { "serverEmojiName": "iconTicket", "fallback": "🎫" },
-  "EDITOR": { "serverEmojiName": "iconEditor", "fallback": "🖊️" },
-  "TYPE": { "serverEmojiName": "iconType", "fallback": "💠" },
-  "PURGE": { "serverEmojiName": "iconTrash", "fallback": "🗑️" },
-  "MUSIC": { "serverEmojiName": "r_music", "fallback": "🎵" },
-  "VOICE": { "serverEmojiName": "iconSound", "fallback": "🔊" },
-  "MAILBOX": { "serverEmojiName": "iconMailbox", "fallback": "📬" },
-  "FRIENDS_ROLE": { "serverEmojiName": "iconStar", "fallback": "🌟" },
-  "MEMBER_ROLE": { "serverEmojiName": "iconTrophy", "fallback": "👑" },
-  "INSTAGRAM": { "serverEmojiName": "Instagram_icon", "fallback": "📸" },
-  "WHATSAPP": { "serverEmojiName": "Whatsapp_icon", "fallback": "💬" },
-  "18PLUS": { "serverEmojiName": "18plus", "fallback": "🔞" },
-  "18MINUS": { "serverEmojiName": "18minus", "fallback": "🧒" },
-  "OWNER": { "serverEmojiName": "owner", "fallback": "👑" },
-  "MANAGEMENT": { "serverEmojiName": "management", "fallback": "🔥" },
-  "MODERATOR": { "serverEmojiName": "moderator", "fallback": "🛡️" },
-  "MEMBER": { "serverEmojiName": "member", "fallback": "✅" },
-  "FRIENDS": { "serverEmojiName": "friends", "fallback": "🤝" },
-  "UNVERIFIED": { "serverEmojiName": "unverified", "fallback": "❗" },
-  "SERVERBOOSTER": { "serverEmojiName": "serverbooster", "fallback": "💎" },
-  "HELP_HEADER": { "serverEmojiName": "iconHelpHeader", "fallback": "📖" },
-  "HELP_ADMIN": { "serverEmojiName": "iconProtect", "fallback": "🛡️" },
-  "HELP_WORLD": { "serverEmojiName": "iconWorld", "fallback": "🌐" },
-  "MC_ADDRESS": { "serverEmojiName": "mc_address","fallback": "🔗"},
-  "HELP_GAMEPLAY": { "serverEmojiName": "iconGame", "fallback": "🎮" },
-  "HELP_MSH": { "serverEmojiName": "iconCmd", "fallback": "🤖" },
-  "MICRO_BLUE": { "serverEmojiName": "iconMicroBlueOutlined", "fallback": "🔵" },
-  "MICRO_YELLOW": { "serverEmojiName": "iconMicroYellowOutlined", "fallback": "🟡" },
-  "MICRO_ORANGE": { "serverEmojiName": "iconMicroOrangeOutlined", "fallback": "🟠" },
-  "POWER_RED": { "serverEmojiName": "iconPowerRedOutlined", "fallback": "🔴" },
-  "POWER_GREEN": { "serverEmojiName": "iconPowerGreenOutlined", "fallback": "🟢" },
-  "SERVER_MAGENTA": { "serverEmojiName": "iconServerMagentaOutlined", "fallback": "🟣" },
-  "SCROLL_UP": { "serverEmojiName": "iconScrollUp", "fallback": "🔼" },
-  "SCROLL_DOWN": { "serverEmojiName": "iconScrollDown", "fallback": "🔽" },
-  "TERMINAL": { "serverEmojiName": "iconCmd", "fallback": "⌨️" },
-  "PLAY": { "serverEmojiName": "r_play", "fallback": "▶️" },
-  "PAUSE": { "serverEmojiName": "r_pause", "fallback": "⏸️" },
-  "STOP": { "serverEmojiName": "r_stop", "fallback": "⏹️" },
-  "SKIP": { "serverEmojiName": "r_skip", "fallback": "⏭️" },
-  "PREVIOUS": { "serverEmojiName": "r_previous", "fallback": "⏮️" },
-  "SHUFFLE": { "serverEmojiName": "r_shuffle", "fallback": "🔀" },
-  "LOOP": { "serverEmojiName": "r_loop", "fallback": "🔁" },
-  "LOOP_ONE": { "serverEmojiName": "r_loopone", "fallback": "🔂" },
-  "VOLUP": { "serverEmojiName": "r_volup", "fallback": "🔊" },
-  "VOLDOWN": { "serverEmojiName": "r_voldown", "fallback": "🔉" },
-  "QUEUE": { "serverEmojiName": "r_queue", "fallback": "📋" },
-  "HEADPHONES": { "serverEmojiName": "r_headphones", "fallback": "🎧" },
-  "AUTHOR": { "serverEmojiName": "r_author", "fallback": "🎤" },
-  "PLAYLIST": { "serverEmojiName": "r_playlist", "fallback": "📑" },
-  "YOUTUBE": { "serverEmojiName": "r_youtube", "fallback": "🔴" },
-  "SPOTIFY": { "serverEmojiName": "r_spotify", "fallback": "🟢" },
-  "INFO": { "serverEmojiName": "r_info", "fallback": "ℹ️" },
-  "REFRESH": { "serverEmojiName": "r_refresh", "fallback": "🔄" },
-  "USER": { "serverEmojiName": "r_user", "fallback": "👤" },
-  "TIME": { "serverEmojiName": "r_time", "fallback": "⏱️" },
-  "ROLE_DETECTIVE": { "serverEmojiName": "au_detective", "fallback": "🕵️" },
-  "ROLE_ENGINEER": { "serverEmojiName": "au_engineer", "fallback": "🔧" },
-  "ROLE_GUARDIANANGEL": { "serverEmojiName": "au_guardianangel", "fallback": "👼" },
-  "ROLE_NOISEMAKER": { "serverEmojiName": "au_noisemaker", "fallback": "📢" },
-  "ROLE_PHANTOM": { "serverEmojiName": "au_phantom", "fallback": "👻" },
-  "ROLE_SCIENTIST": { "serverEmojiName": "au_scientist", "fallback": "🔬" },
-  "ROLE_SHAPESHIFTER": { "serverEmojiName": "au_shapeshifter", "fallback": "🎭" },
-  "ROLE_TRACKER": { "serverEmojiName": "au_tracker", "fallback": "📡" },
-  "ROLE_VIPER": { "serverEmojiName": "au_viper", "fallback": "🐍" },
-  "AU_IMPOSTOR": { "serverEmojiName": "au_impostor", "fallback": "🔴" },
-  "AU_MAP_AIRSHIP": { "serverEmojiName": "au_map_airship", "fallback": "✈️" },
-  "AU_MAP_FUNGLE": { "serverEmojiName": "au_map_fungle", "fallback": "🍄" },
-  "AU_MAP_MIRA": { "serverEmojiName": "au_map_mira", "fallback": "🏢" },
-  "AU_MAP_POLUS": { "serverEmojiName": "au_map_polus", "fallback": "❄️" },
-  "AU_MAP_SKELD": { "serverEmojiName": "au_map_skeld", "fallback": "🛸" },
-  "AU_CAT_CORE": { "serverEmojiName": "au_cat_core", "fallback": "⚙️" },
-  "AU_CAT_RULES": { "serverEmojiName": "au_cat_rules", "fallback": "🎮" },
-  "AU_CAT_VISION": { "serverEmojiName": "au_cat_vision", "fallback": "👁️" },
-  "AU_CAT_TASKS": { "serverEmojiName": "au_cat_tasks", "fallback": "📋" },
-  "LAUNCH_GREEN": { "serverEmojiName": "iconLaunchGreen", "fallback": "🚀" },
-  "LAUNCH_MAGENTA": { "serverEmojiName": "iconLaunchMagenta", "fallback": "🚀" },
-  "LAUNCH_VIOLET": { "serverEmojiName": "iconLaunchViolet", "fallback": "🚀" },
-  "LAUNCH_YELLOW": { "serverEmojiName": "iconLaunchYellow", "fallback": "🚀" },
-  "LAUNCH_TEAL": { "serverEmojiName": "iconLaunchTeal", "fallback": "🚀" }
+  "GAMES": {
+    "serverEmojiName": "iconGame",
+    "fallback": "🎮"
+  },
+  "GAME_BGMI": {
+    "serverEmojiName": "BGMI",
+    "fallback": "🎮"
+  },
+  "GAME_MINECRAFT": {
+    "serverEmojiName": "Minecraft",
+    "fallback": "🟫"
+  },
+  "GAME_COD": {
+    "serverEmojiName": "CallofDuty",
+    "fallback": "🔫"
+  },
+  "GAME_FREEFIRE": {
+    "serverEmojiName": "FreeFire",
+    "fallback": "🔥"
+  },
+  "GAME_AMONGUS": {
+    "serverEmojiName": "AmongUs",
+    "fallback": "👽"
+  },
+  "GAME_SAMP": {
+    "serverEmojiName": "SAMP",
+    "fallback": "🚗"
+  },
+  "HOME": {
+    "serverEmojiName": "iconHome",
+    "fallback": "🏠"
+  },
+  "STAFF": {
+    "serverEmojiName": "iconStaff",
+    "fallback": "🏆"
+  },
+  "DEVICE": {
+    "serverEmojiName": "iconDevice",
+    "fallback": "🎮"
+  },
+  "AGE": {
+    "serverEmojiName": "iconCard",
+    "fallback": "🔰"
+  },
+  "PALETTE": {
+    "serverEmojiName": "iconPalette",
+    "fallback": "🎨"
+  },
+  "PUBLISH": {
+    "serverEmojiName": "iconPublish",
+    "fallback": "📨"
+  },
+  "SUCCESS": {
+    "serverEmojiName": "iconSuccess",
+    "fallback": "✅"
+  },
+  "SAVED": {
+    "serverEmojiName": "iconSaved",
+    "fallback": "✅"
+  },
+  "DONE": {
+    "serverEmojiName": "iconAction",
+    "fallback": "✅"
+  },
+  "ERROR": {
+    "serverEmojiName": "iconError",
+    "fallback": "❌"
+  },
+  "WARNING": {
+    "serverEmojiName": "iconWarning",
+    "fallback": "⚠️"
+  },
+  "PENDING": {
+    "serverEmojiName": "iconPending",
+    "fallback": "⏳"
+  },
+  "TIMER": {
+    "serverEmojiName": "iconTimer",
+    "fallback": "⏱️"
+  },
+  "BOT": {
+    "serverEmojiName": "iconBot",
+    "fallback": "🤖"
+  },
+  "UPTIME": {
+    "serverEmojiName": "iconUptime",
+    "fallback": "📡"
+  },
+  "MEMBERS": {
+    "serverEmojiName": "iconMembers",
+    "fallback": "👥"
+  },
+  "CHANNELS": {
+    "serverEmojiName": "iconChannel",
+    "fallback": "💬"
+  },
+  "OFFLINE": {
+    "serverEmojiName": "offline",
+    "fallback": "⚫"
+  },
+  "LOCK": {
+    "serverEmojiName": "iconLock",
+    "fallback": "🔒"
+  },
+  "BELL": {
+    "serverEmojiName": "iconBell",
+    "fallback": "🔔"
+  },
+  "KEYLOCK": {
+    "serverEmojiName": "iconKey",
+    "fallback": "🔐"
+  },
+  "MEMO": {
+    "serverEmojiName": "iconMemo",
+    "fallback": "📝"
+  },
+  "CARD": {
+    "serverEmojiName": "iconCard",
+    "fallback": "💳"
+  },
+  "TICKET": {
+    "serverEmojiName": "iconTicket",
+    "fallback": "🎫"
+  },
+  "EDITOR": {
+    "serverEmojiName": "iconEditor",
+    "fallback": "🖊️"
+  },
+  "TYPE": {
+    "serverEmojiName": "iconType",
+    "fallback": "💠"
+  },
+  "PURGE": {
+    "serverEmojiName": "iconTrash",
+    "fallback": "🗑️"
+  },
+  "MUSIC": {
+    "serverEmojiName": "r_music",
+    "fallback": "🎵"
+  },
+  "VOICE": {
+    "serverEmojiName": "iconSound",
+    "fallback": "🔊"
+  },
+  "MAILBOX": {
+    "serverEmojiName": "iconMailbox",
+    "fallback": "📬"
+  },
+  "FRIENDS_ROLE": {
+    "serverEmojiName": "iconStar",
+    "fallback": "🌟"
+  },
+  "MEMBER_ROLE": {
+    "serverEmojiName": "iconTrophy",
+    "fallback": "👑"
+  },
+  "INSTAGRAM": {
+    "serverEmojiName": "Instagram_icon",
+    "fallback": "📸"
+  },
+  "WHATSAPP": {
+    "serverEmojiName": "Whatsapp_icon",
+    "fallback": "💬"
+  },
+  "18PLUS": {
+    "serverEmojiName": "18plus",
+    "fallback": "🔞"
+  },
+  "18MINUS": {
+    "serverEmojiName": "18minus",
+    "fallback": "🧒"
+  },
+  "OWNER": {
+    "serverEmojiName": "owner",
+    "fallback": "👑"
+  },
+  "MANAGEMENT": {
+    "serverEmojiName": "management",
+    "fallback": "🔥"
+  },
+  "MODERATOR": {
+    "serverEmojiName": "moderator",
+    "fallback": "🛡️"
+  },
+  "MEMBER": {
+    "serverEmojiName": "member",
+    "fallback": "✅"
+  },
+  "FRIENDS": {
+    "serverEmojiName": "friends",
+    "fallback": "🤝"
+  },
+  "UNVERIFIED": {
+    "serverEmojiName": "unverified",
+    "fallback": "❗"
+  },
+  "SERVERBOOSTER": {
+    "serverEmojiName": "serverbooster",
+    "fallback": "💎"
+  },
+  "HELP_HEADER": {
+    "serverEmojiName": "iconHelpHeader",
+    "fallback": "📖"
+  },
+  "HELP_ADMIN": {
+    "serverEmojiName": "iconProtect",
+    "fallback": "🛡️"
+  },
+  "HELP_WORLD": {
+    "serverEmojiName": "iconWorld",
+    "fallback": "🌐"
+  },
+  "MC_ADDRESS": {
+    "serverEmojiName": "mc_address",
+    "fallback": "🔗"
+  },
+  "HELP_GAMEPLAY": {
+    "serverEmojiName": "iconGame",
+    "fallback": "🎮"
+  },
+  "HELP_MSH": {
+    "serverEmojiName": "iconCmd",
+    "fallback": "🤖"
+  },
+  "MICRO_BLUE": {
+    "serverEmojiName": "iconMicroBlueOutlined",
+    "fallback": "🔵"
+  },
+  "MICRO_YELLOW": {
+    "serverEmojiName": "iconMicroYellowOutlined",
+    "fallback": "🟡"
+  },
+  "MICRO_ORANGE": {
+    "serverEmojiName": "iconMicroOrangeOutlined",
+    "fallback": "🟠"
+  },
+  "POWER_RED": {
+    "serverEmojiName": "iconPowerRedOutlined",
+    "fallback": "🔴"
+  },
+  "POWER_GREEN": {
+    "serverEmojiName": "iconPowerGreenOutlined",
+    "fallback": "🟢"
+  },
+  "SERVER_MAGENTA": {
+    "serverEmojiName": "iconServerMagentaOutlined",
+    "fallback": "🟣"
+  },
+  "SCROLL_UP": {
+    "serverEmojiName": "iconScrollUp",
+    "fallback": "🔼"
+  },
+  "SCROLL_DOWN": {
+    "serverEmojiName": "iconScrollDown",
+    "fallback": "🔽"
+  },
+  "TERMINAL": {
+    "serverEmojiName": "iconCmd",
+    "fallback": "⌨️"
+  },
+  "PLAY": {
+    "serverEmojiName": "r_play",
+    "fallback": "▶️"
+  },
+  "PAUSE": {
+    "serverEmojiName": "r_pause",
+    "fallback": "⏸️"
+  },
+  "STOP": {
+    "serverEmojiName": "r_stop",
+    "fallback": "⏹️"
+  },
+  "SKIP": {
+    "serverEmojiName": "r_skip",
+    "fallback": "⏭️"
+  },
+  "PREVIOUS": {
+    "serverEmojiName": "r_previous",
+    "fallback": "⏮️"
+  },
+  "SHUFFLE": {
+    "serverEmojiName": "r_shuffle",
+    "fallback": "🔀"
+  },
+  "LOOP": {
+    "serverEmojiName": "r_loop",
+    "fallback": "🔁"
+  },
+  "LOOP_ONE": {
+    "serverEmojiName": "r_loopone",
+    "fallback": "🔂"
+  },
+  "VOLUP": {
+    "serverEmojiName": "r_volup",
+    "fallback": "🔊"
+  },
+  "VOLDOWN": {
+    "serverEmojiName": "r_voldown",
+    "fallback": "🔉"
+  },
+  "QUEUE": {
+    "serverEmojiName": "r_queue",
+    "fallback": "📋"
+  },
+  "HEADPHONES": {
+    "serverEmojiName": "r_headphones",
+    "fallback": "🎧"
+  },
+  "AUTHOR": {
+    "serverEmojiName": "r_author",
+    "fallback": "🎤"
+  },
+  "PLAYLIST": {
+    "serverEmojiName": "r_playlist",
+    "fallback": "📑"
+  },
+  "YOUTUBE": {
+    "serverEmojiName": "r_youtube",
+    "fallback": "🔴"
+  },
+  "SPOTIFY": {
+    "serverEmojiName": "r_spotify",
+    "fallback": "🟢"
+  },
+  "INFO": {
+    "serverEmojiName": "r_info",
+    "fallback": "ℹ️"
+  },
+  "REFRESH": {
+    "serverEmojiName": "r_refresh",
+    "fallback": "🔄"
+  },
+  "USER": {
+    "serverEmojiName": "r_user",
+    "fallback": "👤"
+  },
+  "PROFILE": {
+    "serverEmojiName": "iconUser",
+    "fallback": "👤"
+  },
+  "TIME": {
+    "serverEmojiName": "r_time",
+    "fallback": "⏱️"
+  },
+  "ROLE_DETECTIVE": {
+    "serverEmojiName": "au_detective",
+    "fallback": "🕵️"
+  },
+  "ROLE_ENGINEER": {
+    "serverEmojiName": "au_engineer",
+    "fallback": "🔧"
+  },
+  "ROLE_GUARDIANANGEL": {
+    "serverEmojiName": "au_guardianangel",
+    "fallback": "👼"
+  },
+  "ROLE_NOISEMAKER": {
+    "serverEmojiName": "au_noisemaker",
+    "fallback": "📢"
+  },
+  "ROLE_PHANTOM": {
+    "serverEmojiName": "au_phantom",
+    "fallback": "👻"
+  },
+  "ROLE_SCIENTIST": {
+    "serverEmojiName": "au_scientist",
+    "fallback": "🔬"
+  },
+  "ROLE_SHAPESHIFTER": {
+    "serverEmojiName": "au_shapeshifter",
+    "fallback": "🎭"
+  },
+  "ROLE_TRACKER": {
+    "serverEmojiName": "au_tracker",
+    "fallback": "📡"
+  },
+  "ROLE_VIPER": {
+    "serverEmojiName": "au_viper",
+    "fallback": "🐍"
+  },
+  "AU_IMPOSTOR": {
+    "serverEmojiName": "au_impostor",
+    "fallback": "🔴"
+  },
+  "AU_MAP_AIRSHIP": {
+    "serverEmojiName": "au_map_airship",
+    "fallback": "✈️"
+  },
+  "AU_MAP_FUNGLE": {
+    "serverEmojiName": "au_map_fungle",
+    "fallback": "🍄"
+  },
+  "AU_MAP_MIRA": {
+    "serverEmojiName": "au_map_mira",
+    "fallback": "🏢"
+  },
+  "AU_MAP_POLUS": {
+    "serverEmojiName": "au_map_polus",
+    "fallback": "❄️"
+  },
+  "AU_MAP_SKELD": {
+    "serverEmojiName": "au_map_skeld",
+    "fallback": "🛸"
+  },
+  "AU_CAT_CORE": {
+    "serverEmojiName": "au_cat_core",
+    "fallback": "⚙️"
+  },
+  "AU_CAT_RULES": {
+    "serverEmojiName": "au_cat_rules",
+    "fallback": "🎮"
+  },
+  "AU_CAT_VISION": {
+    "serverEmojiName": "au_cat_vision",
+    "fallback": "👁️"
+  },
+  "AU_CAT_TASKS": {
+    "serverEmojiName": "au_cat_tasks",
+    "fallback": "📋"
+  },
+  "LAUNCH_GREEN": {
+    "serverEmojiName": "iconLaunchGreen",
+    "fallback": "🚀"
+  },
+  "LAUNCH_MAGENTA": {
+    "serverEmojiName": "iconLaunchMagenta",
+    "fallback": "🚀"
+  },
+  "LAUNCH_VIOLET": {
+    "serverEmojiName": "iconLaunchViolet",
+    "fallback": "🚀"
+  },
+  "LAUNCH_YELLOW": {
+    "serverEmojiName": "iconLaunchYellow",
+    "fallback": "🚀"
+  },
+  "LAUNCH_TEAL": {
+    "serverEmojiName": "iconLaunchTeal",
+    "fallback": "🚀"
+  }
 }

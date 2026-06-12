@@ -291,7 +291,7 @@ async function createAndAnnounceLobby(interaction, presetName, presetData) {
     try {
       const targetChannel = await interaction.client.channels.fetch(targetChannelId);
       if (targetChannel?.isTextBased()) {
-        const publicContainer = buildLobbyAnnounceUI(
+        const publicPayload = buildLobbyAnnounceUI(
           presetName,
           presetData,
           code,
@@ -300,10 +300,7 @@ async function createAndAnnounceLobby(interaction, presetName, presetData) {
           pingRoleId
         );
 
-        await targetChannel.send({
-          components: [publicContainer],
-          flags: MessageFlags.IsComponentsV2,
-        });
+        await targetChannel.send(publicPayload);
         
         auditLog("info", "AMONGUS_LOBBY_ANNOUNCED", `Announced lobby ${code} to channel ${targetChannelId}`);
       }
@@ -511,7 +508,7 @@ async function handleButtonInteraction(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
-      const presetData = presets[preset] || presets.classic;
+      const presetData = presets[preset] || presets.p1;
       const result = await createAndAnnounceLobby(interaction, preset, presetData);
 
       const successPayload = buildSuccessUI(

@@ -7,8 +7,15 @@ import {
   ButtonBuilder,
   ButtonStyle,
   StringSelectMenuBuilder,
+  SectionBuilder,
+  ThumbnailBuilder,
+  MediaGalleryBuilder,
+  MediaGalleryItemBuilder,
+  AttachmentBuilder,
   MessageFlags,
 } from "discord.js";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { icon, emojiObj } from "../../utils/icons.js";
 import { generateArray } from "./limits.js";
 
@@ -47,6 +54,19 @@ const MAP_EMOJIS = [
   "AU_MAP_AIRSHIP",
   "AU_MAP_FUNGLE",
 ];
+
+const MAP_IMAGES = [
+  "au_map_skeld.webp",
+  "au_map_mira.webp",
+  "au_map_polus.webp",
+  "au_map_airship.webp",
+  "au_map_fungle.webp",
+];
+
+const ASSETS_DIR = fileURLToPath(new URL("../../../assets", import.meta.url));
+
+const LOBBY_BANNER_URL =
+  "https://raw.githubusercontent.com/jubinjacob03/jubinjacob03/main/Public-CDN/au-banner.png";
 
 const CATEGORIES = {
   core: {
@@ -222,14 +242,18 @@ export function buildCustomPresetMenu(presets) {
 }
 
 /**
- * Builds the public lobby announcement UI
+ * Builds the public lobby announcement payload using the full Components V2
+ * toolkit: a header Section with a brand thumbnail accessory, a map banner via
+ * MediaGallery, the lobby-info grid, and a "How to Connect" Section whose
+ * accessory is the connect button. Local assets are attached and referenced
+ * through attachment:// URLs.
  * @param {string} presetName - Name of the preset
  * @param {Object} presetData - Preset configuration
  * @param {string} code - Room code
  * @param {string} clickableLink - Connection link
  * @param {Object} hostUser - Discord user who hosted
  * @param {string} pingRoleId - Role ID to ping
- * @returns {ContainerBuilder} Discord container payload
+ * @returns {{components: ContainerBuilder[], files: AttachmentBuilder[], flags: number, allowedMentions: object}} Discord message payload
  */
 export function buildLobbyAnnounceUI(presetName, presetData, code, clickableLink, hostUser, pingRoleId) {
   const container = new ContainerBuilder().setAccentColor(COLORS.PRIMARY);
@@ -237,13 +261,36 @@ export function buildLobbyAnnounceUI(presetName, presetData, code, clickableLink
   const mapId = validateMapIndex(presetData.map);
   const mapName = MAP_NAMES[mapId];
   const mapEmoji = icon(MAP_EMOJIS[mapId]);
+  const mapImageFile = MAP_IMAGES[mapId];
+
+  const mapImagePath = path.join(ASSETS_DIR, "among-us", mapImageFile);
 
   container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(
-      `<@&${pingRoleId}>\n` +
-      `### ${icon("LAUNCH_VIOLET")} Among Us Custom Lobby\n` +
-      `**${hostUser.toString()}** has hosted a new **${presetName.toUpperCase()}** game!`
+    new TextDisplayBuilder().setContent(`<@&${pingRoleId}>`)
+  );
+
+  container.addMediaGalleryComponents(
+    new MediaGalleryBuilder().addItems(
+      new MediaGalleryItemBuilder()
+        .setURL(LOBBY_BANNER_URL)
+        .setDescription("Among Us Custom Lobby")
     )
+  );
+
+  container.addSectionComponents(
+    new SectionBuilder()
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          `### Among Us Custom Lobby\n` +
+          `**${hostUser.toString()}** has hosted a new **${presetName.toUpperCase()}** game!\n` +
+          `-# Jump in before the lobby fills up.`
+        )
+      )
+      .setThumbnailAccessory(
+        new ThumbnailBuilder()
+          .setURL(`attachment://${mapImageFile}`)
+          .setDescription(`${mapName} map`)
+      )
   );
 
   container.addSeparatorComponents(
@@ -252,7 +299,8 @@ export function buildLobbyAnnounceUI(presetName, presetData, code, clickableLink
 
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `# \` ${code} \``
+      `### ${icon("GAME_AMONGUS")} Room Code\n` +
+      `\`\`\`ansi\n\u001b[1;36m${code}\u001b[0m\n\`\`\``
     )
   );
 
@@ -271,11 +319,15 @@ export function buildLobbyAnnounceUI(presetName, presetData, code, clickableLink
     (presetData.trackers || 0) +
     (presetData.detectives || 0);
 
+  const box = (s, w) => `\` ${String(s).padEnd(w)} \``;
+  const cell = (label, lw, emoji, value, vw) =>
+    `${box(label, lw)} ${emoji} ${box(value, vw)}`;
+
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
       `### ${icon("AU_CAT_CORE")} Lobby Info\n\n` +
-      `### \` ${pad("Map")} \` ${padV1(`${mapEmoji} ${mapName}`)}\` ${pad("Imposters")} \` ${padV2(`${icon("AU_IMPOSTOR")} ${presetData.impostors || 0}`)}\` ${pad("Players")} \` ${icon("MEMBERS")} ${presetData.maxPlayers || 0}\n\n` +
-      `### \` ${pad("Speed")} \` ${padV1(`${icon("MICRO_YELLOW")} ${presetData.playerSpeed || 1.0}x`)}\` ${pad("Cooldown")} \` ${padV2(`${icon("TIMER")} ${presetData.killCooldown || 0}s`)}\` ${pad("Roles")} \` ${icon("ROLE_SHAPESHIFTER")} ${roleCount}`
+      `### ${cell("Map", 5, mapEmoji, mapName, 10)}  ${cell("Imposters", 9, icon("AU_IMPOSTOR"), presetData.impostors || 0, 5)}  ${cell("Players", 7, icon("MEMBERS"), presetData.maxPlayers || 0, 2)}\n\n` +
+      `### ${cell("Speed", 5, icon("MICRO_YELLOW"), `${presetData.playerSpeed || 1.0}x`, 10)}  ${cell("Cooldown", 9, icon("TIMER"), `${presetData.killCooldown || 0}s`, 5)}  ${cell("Roles", 7, icon("ROLE_SHAPESHIFTER"), roleCount, 2)}`
     )
   );
 
@@ -283,27 +335,29 @@ export function buildLobbyAnnounceUI(presetName, presetData, code, clickableLink
     new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
   );
 
-  container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(
-      `### ${icon("HELP_WORLD")} How to Connect\n` +
-      `**PC / Android:** Make sure your \`regionInfo.json\` is set to NexKord.\n` +
-      `**iOS / Android (Auto):** Open Among Us in the background, then click the button below.`
-    )
-  );
+  const connectText =
+    `### ${icon("HELP_WORLD")} How to Connect\n` +
+    `-# **PC** : set your \`regionInfo.json\` to NexKord  •  **Android / iOS** : just tap the Connect button`;
 
   if (clickableLink.startsWith("http")) {
-    container.addActionRowComponents(
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setLabel("Connect to Lobby")
-          .setURL(clickableLink)
-          .setStyle(ButtonStyle.Link)
-          .setEmoji(emojiObj("LAUNCH_GREEN"))
-      )
+    container.addSectionComponents(
+      new SectionBuilder()
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(connectText)
+        )
+        .setButtonAccessory(
+          new ButtonBuilder()
+            .setLabel("Connect")
+            .setURL(clickableLink)
+            .setStyle(ButtonStyle.Link)
+            .setEmoji(emojiObj("LAUNCH_GREEN"))
+        )
     );
   } else {
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`[Tap here to connect to NexKord Server](${clickableLink})`)
+      new TextDisplayBuilder().setContent(
+        `${connectText}\n\n[Tap here to connect to NexKord Server](${clickableLink})`
+      )
     );
   }
 
@@ -315,7 +369,12 @@ export function buildLobbyAnnounceUI(presetName, presetData, code, clickableLink
     new TextDisplayBuilder().setContent(`-# NexKord Server · <t:${ts}:f>`)
   );
 
-  return container;
+  return {
+    components: [container],
+    files: [new AttachmentBuilder(mapImagePath, { name: mapImageFile })],
+    flags: MessageFlags.IsComponentsV2,
+    allowedMentions: { roles: [pingRoleId] },
+  };
 }
 
 /**
@@ -992,7 +1051,7 @@ export function buildPresetInfoUI() {
 
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${icon("LAUNCH_GREEN")}  Classic\n` +
+      `## ${icon("LAUNCH_GREEN")}  P1\n` +
         `### ${col1(`${icon("AU_MAP_SKELD")} The Skeld`)}${col2(`${icon("AU_IMPOSTOR")} 2 Imposters`)}${icon("MEMBERS")} 15 Players\n` +
         `### ${icon("TIMER")} 27.5s Cooldown`,
     ),
@@ -1006,7 +1065,7 @@ export function buildPresetInfoUI() {
 
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${icon("LAUNCH_MAGENTA")}  Chill\n` +
+      `## ${icon("LAUNCH_MAGENTA")}  P2\n` +
         `### ${col1(`${icon("AU_MAP_SKELD")} The Skeld`)}${col2(`${icon("AU_IMPOSTOR")} 2 Imposters`)}${icon("MEMBERS")} 15 Players\n` +
         `### ${col1(`${icon("ROLE_GUARDIANANGEL")} 1 Angel`)}${icon("TIMER")} 27.5s Cooldown`,
     ),
@@ -1020,7 +1079,7 @@ export function buildPresetInfoUI() {
 
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${icon("LAUNCH_VIOLET")}  Chaos\n` +
+      `## ${icon("LAUNCH_VIOLET")}  P3\n` +
         `### ${col1(`${icon("AU_MAP_SKELD")} The Skeld`)}${col2(`${icon("AU_IMPOSTOR")} 2 Imposters`)}${icon("MEMBERS")} 15 Players\n` +
         `### ${col1(`${icon("ROLE_SHAPESHIFTER")} 1 Shape`)}${col2(`${icon("ROLE_GUARDIANANGEL")} 1 Angel`)}${icon("TIMER")} 27.5s Cooldown`,
     ),
@@ -1034,7 +1093,7 @@ export function buildPresetInfoUI() {
 
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${icon("LAUNCH_YELLOW")}  Trio-Mess\n` +
+      `## ${icon("LAUNCH_YELLOW")}  P4\n` +
         `### ${col1(`${icon("AU_MAP_SKELD")} The Skeld`)}${col2(`${icon("AU_IMPOSTOR")} 3 Imposters`)}${icon("MEMBERS")} 15 Players\n` +
         `### ${col1(`${icon("ROLE_GUARDIANANGEL")} 2 Angel`)}${icon("TIMER")} 30s Cooldown`,
     ),
@@ -1048,7 +1107,7 @@ export function buildPresetInfoUI() {
 
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${icon("LAUNCH_TEAL")}  Hardcore\n` +
+      `## ${icon("LAUNCH_TEAL")}  P5\n` +
         `### ${col1(`${icon("AU_MAP_SKELD")} The Skeld`)}${col2(`${icon("AU_IMPOSTOR")} 2 Imposters`)}${icon("MEMBERS")} 15 Players\n` +
         `### ${col1(`${icon("ROLE_SHAPESHIFTER")} 1 Shape`)}${col2(`${icon("ROLE_VIPER")} 1 Viper`)}${icon("TIMER")} 27.5s Cooldown\n` +
         `### ${col1(`${icon("ROLE_DETECTIVE")} 1 Detec`)}${icon("ROLE_GUARDIANANGEL")} 2 Angel`,
@@ -1137,7 +1196,7 @@ export function buildHelpUI() {
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
       `**Q: How does the connection work?**\n` +
-      `**A:** NexKord runs a custom Among Us server. When you click "Connect to Lobby", it uses a deep-link (\`amongus://init...\`) that temporarily configures your game to connect to our private server instead of InnerSloth's.`
+      `**A:** NexKord runs a custom Among Us server. On **PC**, set your \`regionInfo.json\` to NexKord. On **Android / iOS**, just tap the **Connect** button on a lobby announcement — it auto-configures your game to join our server instead of InnerSloth's.`
     )
   );
 

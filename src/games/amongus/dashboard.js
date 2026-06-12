@@ -80,55 +80,37 @@ export async function buildAmongUsDashboardPayload() {
 
   container.addSeparatorComponents(
     new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
-  );
-
-  container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(`### ${icon("LAUNCH_VIOLET")}  Quick Launch Presets`)
-  );
-
-  container.addSeparatorComponents(new SeparatorBuilder().setDivider(false));
+  );
 
   container.addActionRowComponents(
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId("au_create_classic")
-        .setLabel("Classic")
+        .setCustomId("au_create_p1")
+        .setLabel("P1")
         .setEmoji(icon("LAUNCH_GREEN"))
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
-        .setCustomId("au_create_chill")
-        .setLabel("Chill")
+        .setCustomId("au_create_p2")
+        .setLabel("P2")
         .setEmoji(icon("LAUNCH_MAGENTA"))
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
-        .setCustomId("au_create_chaos")
-        .setLabel("Chaos")
+        .setCustomId("au_create_p3")
+        .setLabel("P3")
         .setEmoji(icon("LAUNCH_VIOLET"))
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
-        .setCustomId("au_create_trio_mess")
-        .setLabel("Trio-Mess")
+        .setCustomId("au_create_p4")
+        .setLabel("P4")
         .setEmoji(icon("LAUNCH_YELLOW"))
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
-        .setCustomId("au_create_hardcore")
-        .setLabel("Hardcore")
+        .setCustomId("au_create_p5")
+        .setLabel("P5")
         .setEmoji(icon("LAUNCH_TEAL"))
         .setStyle(ButtonStyle.Secondary)
     )
-  );
-
-  container.addSeparatorComponents(
-    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
-  );
-
-  container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(
-      `### ${icon("EDITOR")}  Advanced Options`
-    )
-  );
-
-  container.addSeparatorComponents(new SeparatorBuilder().setDivider(false));
+  );
 
   container.addActionRowComponents(
     new ActionRowBuilder().addComponents(

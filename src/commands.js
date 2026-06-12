@@ -90,11 +90,11 @@ export const commandDefinitions = [
             .setDescription("The preset to use for the lobby")
             .setRequired(true)
             .addChoices(
-              { name: "Classic", value: "classic" },
-              { name: "Chill", value: "chill" },
-              { name: "Trio-Mess", value: "trio_mess" },
-              { name: "Chaos", value: "chaos" },
-              { name: "Hardcore", value: "hardcore" }
+              { name: "P1", value: "p1" },
+              { name: "P2", value: "p2" },
+              { name: "P3", value: "p3" },
+              { name: "P4", value: "p4" },
+              { name: "P5", value: "p5" }
             )
         )
     )
@@ -341,13 +341,13 @@ export async function handleSlashCommand(interaction) {
           auditLog("info", "SLASH_COMMAND", `${interaction.user.tag} executed /amongus room ${preset}`);
 
           const code = await createImpostorLobby(preset);
-          const presetData = presets[preset] || presets.classic;
+          const presetData = presets[preset] || presets.p1;
 
           const serverIp = process.env.IMPOSTOR_SERVER_IP || "play.nexkord.com";
           const deepLink = `amongus://init?servername=NexKord&serverip=${serverIp}&serverport=22023&usedtls=false`;
           const pingRoleId = process.env.AMONGUS_PING_ROLE_ID || "1510515943103664218";
 
-          const publicContainer = buildLobbyAnnounceUI(
+          const publicPayload = buildLobbyAnnounceUI(
             preset,
             presetData,
             code,
@@ -356,10 +356,7 @@ export async function handleSlashCommand(interaction) {
             pingRoleId
           );
 
-          await interaction.editReply({
-            components: [publicContainer],
-            flags: MessageFlags.IsComponentsV2,
-          });
+          await interaction.editReply(publicPayload);
         } catch (error) {
           auditLog("error", "SLASH_COMMAND_FAIL", `${interaction.user.tag} failed /amongus room: ${error.message}`);
           await interaction.editReply(
@@ -378,11 +375,11 @@ export async function handleSlashCommand(interaction) {
             },
             {
               name: "📋 Available Presets",
-              value: "**Classic:** 2 Impostors, 15 Players, The Skeld\n**Chill:** 2 Impostors, 15 Players, 1 Angel\n**Trio-Mess:** 3 Impostors, 15 Players, 2 Angels\n**Chaos:** 2 Impostors, 15 Players, Shapeshifters\n**Hardcore:** 2 Impostors, 15 Players, Advanced Roles",
+              value: "**P1:** 2 Impostors, 15 Players, The Skeld\n**P2:** 2 Impostors, 15 Players, 1 Angel\n**P3:** 2 Impostors, 15 Players, Shapeshifters\n**P4:** 3 Impostors, 15 Players, 2 Angels\n**P5:** 2 Impostors, 15 Players, Advanced Roles",
             },
             {
               name: "🔌 How to Connect",
-              value: "**PC / Android:** Set your `regionInfo.json` to point to `play.nexkord.com`.\n**iOS / Android:** Use the deep link provided when a room is created.",
+              value: "**PC:** Set your `regionInfo.json` to point to `play.nexkord.com`.\n**Android / iOS:** Just tap the **Connect** button on the lobby announcement.",
             }
           ],
         };

@@ -5,7 +5,7 @@ const IMPOSTOR_API_URL = process.env.IMPOSTOR_API_URL || "http://localhost:22025
 const IMPOSTOR_API_KEY = process.env.IMPOSTOR_API_KEY || "your_secret_key";
 
 export const presets = {
-  classic: {
+  p1: {
     impostors: 2,
     killCooldown: 27.5,
     impVision: 1.5,
@@ -30,7 +30,7 @@ export const presets = {
     vipers: 0,
     engineers: 0
   },
-  chill: {
+  p2: {
     impostors: 2,
     killCooldown: 27.5,
     impVision: 1.5,
@@ -55,7 +55,32 @@ export const presets = {
     vipers: 0,
     engineers: 0
   },
-  trio_mess: {
+  p3: {
+    impostors: 2,
+    killCooldown: 27.5,
+    impVision: 1.5,
+    killDistance: "short",
+    playerSpeed: 1.5,
+    crewVision: 1.25,
+    meetings: 2,
+    meetingCooldown: 15,
+    discussionTime: 45,
+    votingTime: 165,
+    anonymousVotes: true,
+    confirmImpostor: true,
+    taskBarUpdate: 1,
+    commonTasks: 2,
+    longTasks: 2,
+    shortTasks: 4,
+    visualTasks: false,
+    maxPlayers: 15,
+    map: 0,
+    shapeshifters: 1,
+    angels: 1,
+    vipers: 0,
+    engineers: 0
+  },
+  p4: {
     impostors: 3,
     killCooldown: 30.0,
     impVision: 1.5,
@@ -81,32 +106,7 @@ export const presets = {
     engineers: 0,
     detectives: 0
   },
-  chaos: {
-    impostors: 2,
-    killCooldown: 27.5,
-    impVision: 1.5,
-    killDistance: "short",
-    playerSpeed: 1.5,
-    crewVision: 1.25,
-    meetings: 2,
-    meetingCooldown: 15,
-    discussionTime: 45,
-    votingTime: 165,
-    anonymousVotes: true,
-    confirmImpostor: true,
-    taskBarUpdate: 1,
-    commonTasks: 2,
-    longTasks: 2,
-    shortTasks: 4,
-    visualTasks: false,
-    maxPlayers: 15,
-    map: 0,
-    shapeshifters: 1,
-    angels: 1,
-    vipers: 0,
-    engineers: 0
-  },
-  hardcore: {
+  p5: {
     impostors: 2,
     killCooldown: 27.5,
     impVision: 1.5,
@@ -140,8 +140,8 @@ export const presets = {
  * @returns {Promise<string>} The generated room code
  * @throws {Error} If the API request fails
  */
-export async function createImpostorLobby(presetName = "classic") {
-  const preset = presets[presetName.toLowerCase()] || presets.classic;
+export async function createImpostorLobby(presetName = "p1") {
+  const preset = presets[presetName.toLowerCase()] || presets.p1;
 
   auditLog("info", "AMONGUS", `Requesting lobby creation with preset: ${presetName}`);
 

@@ -62,6 +62,12 @@ export class AkinatorClient {
     if (this.page && !this.page.isClosed()) return this.page;
     const browser = await getBrowser();
     this.page = await browser.newPage();
+    if (process.env.AKINATOR_PROXY_USER && process.env.AKINATOR_PROXY_PASS) {
+      await this.page.authenticate({
+        username: process.env.AKINATOR_PROXY_USER,
+        password: process.env.AKINATOR_PROXY_PASS,
+      });
+    }
     await this.page.setUserAgent(UA);
     this.page.setDefaultNavigationTimeout(60000);
     this.page.setDefaultTimeout(60000);

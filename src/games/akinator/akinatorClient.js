@@ -1,5 +1,12 @@
+import path from "path";
+import { fileURLToPath } from "url";
 import { getBrowser } from "./browser.js";
 import { auditLog } from "../../utils/logger.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const DEBUG_DIR = path.join(__dirname, "..", "..", "..", "logs");
 
 const BASE = "https://en.akinator.com";
 const UA =
@@ -241,21 +248,73 @@ export class AkinatorClient {
   }
 
   /**
+   * Waits for a selector to appear and be visible. Returns false on timeout
+   * rather than throwing.
+   * @param {string} selector
+   * @param {number} [timeout=20000]
+   * @returns {Promise<boolean>}
+   */
+  async _waitForSelector(selector, timeout = 20000) {
+    try {
+      await this.page.waitForSelector(selector, { timeout, visible: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Detects a Cloudflare interstitial / bot challenge on the current page.
+   * @returns {Promise<boolean>}
+   */
+  async _detectCloudflare() {
+    return this.page.evaluate(() => {
+      const t = `${document.title} ${document.body ? document.body.innerText : ""}`;
+      return /just a moment|verify you are human|enable javascript and cookies|attention required|cf-chl|challenge-platform/i.test(
+        t,
+      );
+    });
+  }
+
+  /**
+   * Saves a screenshot to the mounted logs volume for diagnosis. Best-effort.
+   * @param {string} tag Filename suffix.
+   * @returns {Promise<void>}
+   */
+  async _debugShot(tag) {
+    try {
+      const file = path.join(DEBUG_DIR, `akinator_${tag}.png`);
+      await this.page.screenshot({ path: file });
+      auditLog(
+        "warn",
+        "AKINATOR",
+        `Saved debug screenshot logs/akinator_${tag}.png (url=${this.page.url()})`,
+      );
+    } catch {
+      void 0;
+    }
+  }
+
+  /**
    * Clicks a theme tile by its visible label.
    * @param {string} label
    * @returns {Promise<boolean>} Whether a matching tile was found and clicked.
    */
   async _clickTheme(label) {
-    return this.page.evaluate((lab) => {
-      const li = [...document.querySelectorAll("li.li-game, li")].find(
-        (e) => (e.innerText || "").trim().toLowerCase() === lab.toLowerCase(),
-      );
-      if (li) {
-        li.click();
-        return true;
-      }
+    try {
+      return await this.page.evaluate((lab) => {
+        const li = [...document.querySelectorAll("li.li-game, li")].find(
+          (e) => (e.innerText || "").trim().toLowerCase() === lab.toLowerCase(),
+        );
+        if (li) {
+          li.click();
+          return true;
+        }
+        return false;
+      }, label);
+    } catch {
       return false;
-    }, label);
+    }
   }
 
   /**
@@ -271,14 +330,20 @@ export class AkinatorClient {
     const page = await this._getPage();
 
     await page.goto(`${BASE}/theme-selection`, {
-      waitUntil: "networkidle2",
+      waitUntil: "domcontentloaded",
       timeout: 60000,
     });
     await this._dismissConsent();
 
-    let started = await this._clickTheme(label);
-    if (!started) {
-      await page.goto(BASE, { waitUntil: "networkidle2", timeout: 60000 });
+    let ready = await this._waitForSelector("li.li-game", 25000);
+    if (!ready) {
+      if (await this._detectCloudflare()) {
+        await this._debugShot("cloudflare");
+        throw new Error(
+          "Blocked by Cloudflare challenge (likely the server's datacenter IP).",
+        );
+      }
+      await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 60000 });
       await this._dismissConsent();
       await page.evaluate(() => {
         const play = [
@@ -287,16 +352,40 @@ export class AkinatorClient {
         if (play) play.click();
       });
       await this._waitUrl("theme-selection");
-      await sleep(1500);
-      started = await this._clickTheme(label);
+      ready = await this._waitForSelector("li.li-game", 20000);
     }
 
-    if (!started) throw new Error("Could not select theme on Akinator.");
+    if (!ready) {
+      await this._debugShot("notiles");
+      throw new Error("Akinator theme tiles never appeared.");
+    }
 
-    await this._waitUrl("/game", 20000);
+    let entered = false;
+    for (let attempt = 0; attempt < 6 && !entered; attempt++) {
+      await this._clickTheme(label);
+      entered = await this.page
+        .waitForFunction(
+          () =>
+            location.href.includes("/game") ||
+            !!document.querySelector("#question-label"),
+          { timeout: 5000 },
+        )
+        .then(() => true)
+        .catch(() => false);
+      if (!entered) await sleep(1200);
+    }
+    if (!entered) {
+      await this._debugShot("noenter");
+      throw new Error("Theme selected but the game did not start.");
+    }
+
     await this._waitForRenderedState();
+    const state = await this._readState();
+    if (state.type === "question" && !state.question) {
+      await this._debugShot("noquestion");
+    }
     auditLog("info", "AKINATOR", `Game started (theme=${theme}).`);
-    return this._readState();
+    return state;
   }
 
   /**

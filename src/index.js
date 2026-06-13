@@ -84,7 +84,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   await initVoiceManager(client);
   startEventServer();
 
-  initAkinator(client);
+  await initAkinator(client);
 
   setRandomPresence(readyClient);
   setInterval(() => setRandomPresence(readyClient), 300000);

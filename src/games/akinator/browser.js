@@ -50,7 +50,7 @@ let launching = null;
  * @returns {Promise<import('puppeteer-core').Browser>}
  */
 export async function getBrowser() {
-  if (browser && browser.isConnected()) return browser;
+  if (isConnected(browser)) return browser;
   if (launching) return launching;
 
   launching = (async () => {
@@ -97,8 +97,20 @@ export async function closeBrowser() {
 }
 
 /**
+ * Reports whether a browser instance is alive, tolerating the API change across
+ * puppeteer versions (`isConnected()` method vs. the newer `connected` getter).
+ * @param {import('puppeteer-core').Browser|null} b
+ * @returns {boolean}
+ */
+function isConnected(b) {
+  if (!b) return false;
+  if (typeof b.isConnected === "function") return b.isConnected();
+  return b.connected !== false;
+}
+
+/**
  * @returns {boolean} Whether the dedicated browser is currently open.
  */
 export function isBrowserOpen() {
-  return !!(browser && browser.isConnected());
+  return isConnected(browser);
 }

@@ -10,15 +10,56 @@ import {
   ThumbnailBuilder,
   MessageFlags,
 } from "discord.js";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { AkinatorClient } from "./akinatorClient.js";
 import { closeBrowser } from "./browser.js";
 import { auditLog } from "../../utils/logger.js";
 import { icon, emojiObj } from "../../utils/icons.js";
 import { akitude, questionAkitude } from "./akitudes.js";
 
-const ACCENT = 0x9b59ff;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const GENIE_EMOJI_NAME = "akinatorgenie";
+const GENIE_ICON_PATH = path.join(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "assets",
+  "akinator",
+  "icon.png",
+);
+
+/** Inline persona icon — a circular genie head emoji, or the 🧞 fallback. */
+let genieIcon = "🧞";
+
+const ACCENT = 0x00ffff;
 const WIN_COLOR = 0x2ecc71;
 const DEFEAT_COLOR = 0xe74c3c;
+
+/**
+ * Lowercase letters mapped to their Unicode small-capital glyphs.
+ * @type {Record<string, string>}
+ */
+const SMALL_CAPS = {
+  a: "ᴀ", b: "ʙ", c: "ᴄ", d: "ᴅ", e: "ᴇ", f: "ꜰ", g: "ɢ", h: "ʜ", i: "ɪ",
+  j: "ᴊ", k: "ᴋ", l: "ʟ", m: "ᴍ", n: "ɴ", o: "ᴏ", p: "ᴘ", q: "ꞯ", r: "ʀ",
+  s: "ꜱ", t: "ᴛ", u: "ᴜ", v: "ᴠ", w: "ᴡ", x: "x", y: "ʏ", z: "ᴢ",
+};
+
+/**
+ * Transforms a string to small caps, leaving markdown, digits, punctuation and
+ * existing capitals untouched. Must only wrap plain text — never custom-emoji
+ * tokens, whose names would be corrupted.
+ * @param {string} text
+ * @returns {string}
+ */
+function sc(text) {
+  return String(text).replace(/[a-z]/g, (ch) => SMALL_CAPS[ch] || ch);
+}
 
 const GAME_IDLE_MS = 3 * 60 * 1000;
 const BROWSER_IDLE_MS = 5 * 60 * 1000;
@@ -114,19 +155,25 @@ function parseYesNo(text) {
 }
 
 /**
- * Builds a uniformly grey button carrying an icon-map emoji, so the icon rather
- * than the button colour conveys meaning.
+ * Builds a uniformly grey button. An optional icon-map key (uppercase) resolves
+ * to a custom emoji; a raw emoji string is used as-is; omit it for a text-only
+ * button. With grey buttons the icon, when present, conveys the meaning.
  * @param {string} id Custom ID.
  * @param {string} label Button label.
- * @param {string|import('discord.js').ComponentEmojiResolvable} emoji Icon key or raw emoji.
+ * @param {string|import('discord.js').ComponentEmojiResolvable} [emoji] Icon key or raw emoji.
  * @returns {ButtonBuilder}
  */
-function greyButton(id, label, emoji) {
-  return new ButtonBuilder()
+function greyButton(id, label, emoji = null) {
+  const button = new ButtonBuilder()
     .setCustomId(id)
-    .setLabel(label)
-    .setEmoji(typeof emoji === "string" && /^[A-Z0-9_]+$/.test(emoji) ? emojiObj(emoji) : emoji)
+    .setLabel(sc(label))
     .setStyle(ButtonStyle.Secondary);
+  if (emoji) {
+    button.setEmoji(
+      typeof emoji === "string" && /^[A-Z0-9_]+$/.test(emoji) ? emojiObj(emoji) : emoji,
+    );
+  }
+  return button;
 }
 
 /**
@@ -135,9 +182,9 @@ function greyButton(id, label, emoji) {
  */
 function themeRow() {
   return new ActionRowBuilder().addComponents(
-    greyButton("aki_theme_characters", "Characters", "USER"),
-    greyButton("aki_theme_animals", "Animals", "🐾"),
-    greyButton("aki_theme_objects", "Objects", "📦"),
+    greyButton("aki_theme_characters", "Characters"),
+    greyButton("aki_theme_animals", "Animals"),
+    greyButton("aki_theme_objects", "Objects"),
   );
 }
 
@@ -148,11 +195,11 @@ function themeRow() {
  */
 function answerRows() {
   const answers = new ActionRowBuilder().addComponents(
-    greyButton("aki_ans_yes", "Yes", "SUCCESS"),
-    greyButton("aki_ans_probably", "Probably", "POWER_GREEN"),
-    greyButton("aki_ans_idk", "Don't know", "MICRO_YELLOW"),
-    greyButton("aki_ans_probably_not", "Probably not", "MICRO_ORANGE"),
-    greyButton("aki_ans_no", "No", "ERROR"),
+    greyButton("aki_ans_yes", "Yes"),
+    greyButton("aki_ans_probably", "Probably"),
+    greyButton("aki_ans_idk", "Don't know"),
+    greyButton("aki_ans_probably_not", "Probably not"),
+    greyButton("aki_ans_no", "No"),
   );
   const controls = new ActionRowBuilder().addComponents(
     greyButton("aki_back", "Back", "PREVIOUS"),
@@ -173,20 +220,39 @@ function guessRow() {
 }
 
 /**
+ * Appends the house-style footer to a container: a thin divider followed by a
+ * muted brand-and-timestamp line, optionally prefixed with a contextual hint.
+ * @param {ContainerBuilder} container
+ * @param {string|null} [hint=null] Optional small-caps hint shown before the brand.
+ * @returns {ContainerBuilder}
+ */
+function brandFooter(container, hint = null) {
+  container.addSeparatorComponents(
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+  );
+  const ts = Math.floor(Date.now() / 1000);
+  const prefix = hint ? `${sc(hint)} · ` : "";
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(`-# ${prefix}NexKord · <t:${ts}:f>`),
+  );
+  return container;
+}
+
+/**
  * Renders a Components V2 container: a header section with the genie pose as a
- * thumbnail accessory, followed by the button rows and a muted footer. When
- * `withControls` is false the buttons and footer are omitted, yielding the
- * button-less card used to retire a superseded message.
+ * thumbnail accessory, optional button rows, and the house footer. When
+ * `withControls` is false the buttons (and the contextual hint) are omitted,
+ * yielding the button-less card used to retire a superseded message.
  * @param {object} opts
  * @param {string} opts.header Markdown shown beside the thumbnail.
  * @param {{url:string}} opts.pose Akitude thumbnail reference.
  * @param {number} opts.accent Accent bar colour.
  * @param {ActionRowBuilder<ButtonBuilder>[]} [opts.rows=[]]
- * @param {string|null} [opts.footer=null] Muted footer markdown.
+ * @param {string|null} [opts.hint=null] Contextual footer hint (interactive cards only).
  * @param {boolean} withControls
  * @returns {ContainerBuilder}
  */
-function renderContainer({ header, pose, accent, rows = [], footer = null }, withControls) {
+function renderContainer({ header, pose, accent, rows = [], hint = null }, withControls) {
   const container = new ContainerBuilder().setAccentColor(accent);
   container.addSectionComponents(
     new SectionBuilder()
@@ -198,13 +264,8 @@ function renderContainer({ header, pose, accent, rows = [], footer = null }, wit
       new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Large),
     );
     for (const row of rows) container.addActionRowComponents(row);
-    if (footer) {
-      container.addSeparatorComponents(
-        new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small),
-      );
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(footer));
-    }
   }
+  brandFooter(container, withControls ? hint : null);
   return container;
 }
 
@@ -223,14 +284,18 @@ function buildMessage(opts) {
 }
 
 /**
- * Composes the header markdown for the genie persona line plus a title and body.
- * @param {string} title Markdown title (rendered large).
- * @param {string} [body=""] Optional body markdown.
+ * Composes the header markdown: a muted persona line, an H3 small-caps title
+ * (optionally icon-prefixed), and an optional small-caps body. Icons are kept
+ * outside {@link sc} so emoji tokens are never corrupted.
+ * @param {string} title Title text (rendered as H3 small caps).
+ * @param {string} [body=""] Optional body text (small caps).
+ * @param {string|null} [titleIcon=null] Optional icon-map key prefixed to the title.
  * @returns {string}
  */
-function header(title, body = "") {
-  const persona = `-# ${icon("BOT")} AKINATOR`;
-  return body ? `${persona}\n## ${title}\n${body}` : `${persona}\n## ${title}`;
+function header(title, body = "", titleIcon = null) {
+  const persona = `-# ${genieIcon} ${sc("Akinator")}`;
+  const titleLine = `### ${titleIcon ? `${icon(titleIcon)} ` : ""}${sc(title)}`;
+  return body ? `${persona}\n${titleLine}\n${sc(body)}` : `${persona}\n${titleLine}`;
 }
 
 /**
@@ -279,13 +344,39 @@ async function retireLastMessage() {
 }
 
 /**
- * Initializes the module: stores the client and starts the idle sweeper.
+ * Ensures the circular genie persona emoji exists on the application, creating
+ * it from the bundled icon on first run. Falls back to 🧞 on any failure.
  * @param {import('discord.js').Client} client
- * @returns {void}
+ * @returns {Promise<void>}
  */
-export function initAkinator(client) {
+async function registerGenieIcon(client) {
+  try {
+    const emojis = await client.application.emojis.fetch();
+    let emoji = emojis.find((e) => e.name === GENIE_EMOJI_NAME);
+    if (!emoji) {
+      emoji = await client.application.emojis.create({
+        attachment: fs.readFileSync(GENIE_ICON_PATH),
+        name: GENIE_EMOJI_NAME,
+      });
+      auditLog("info", "AKINATOR", `Registered persona emoji :${GENIE_EMOJI_NAME}:`);
+    }
+    genieIcon = `<:${emoji.name}:${emoji.id}>`;
+  } catch (e) {
+    genieIcon = "🧞";
+    auditLog("warn", "AKINATOR", `Persona emoji unavailable, using fallback: ${e.message}`);
+  }
+}
+
+/**
+ * Initializes the module: stores the client, registers the persona icon, and
+ * starts the idle sweeper.
+ * @param {import('discord.js').Client} client
+ * @returns {Promise<void>}
+ */
+export async function initAkinator(client) {
   discordClient = client;
   setInterval(sweepIdle, 30 * 1000);
+  await registerGenieIcon(client);
   const channelId = process.env.AKINATOR_CHANNEL_ID;
   if (!channelId) {
     auditLog("warn", "AKINATOR", "AKINATOR_CHANNEL_ID not set — module idle.");
@@ -348,8 +439,9 @@ function sweepIdle() {
     const channel = discordClient?.channels?.cache?.get(session.channelId);
     const built = buildMessage({
       header: header(
-        `${icon("TIMER")} The genie dozed off`,
+        "The genie dozed off",
         "Game ended due to inactivity — type anything to start a new one!",
+        "TIMER",
       ),
       pose: akitude("sleeping"),
       accent: ACCENT,
@@ -377,7 +469,8 @@ export async function handleAkinatorMessage(message) {
     const low = content.toLowerCase();
 
     if (!session.active) {
-      await startGame(message.author, message.channel);
+      const displayName = message.member?.displayName || message.author.username;
+      await startGame(message.author, displayName, message.channel);
       return;
     }
 
@@ -388,16 +481,18 @@ export async function handleAkinatorMessage(message) {
         await message
           .reply({
             components: [
-              new ContainerBuilder()
-                .setAccentColor(ACCENT)
-                .addTextDisplayComponents(
-                  new TextDisplayBuilder().setContent(
-                    header(
-                      "The genie is busy",
-                      `A game with **${session.playerTag}** is already in progress — please wait your turn!`,
+              brandFooter(
+                new ContainerBuilder()
+                  .setAccentColor(ACCENT)
+                  .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(
+                      header(
+                        "The genie is busy",
+                        `A game with **${session.playerTag}** is already in progress — please wait your turn!`,
+                      ),
                     ),
                   ),
-                ),
+              ),
             ],
             flags: V2,
           })
@@ -522,11 +617,13 @@ async function replyNotice(interaction, title, body) {
   await interaction
     .reply({
       components: [
-        new ContainerBuilder()
-          .setAccentColor(ACCENT)
-          .addTextDisplayComponents(
-            new TextDisplayBuilder().setContent(header(title, body)),
-          ),
+        brandFooter(
+          new ContainerBuilder()
+            .setAccentColor(ACCENT)
+            .addTextDisplayComponents(
+              new TextDisplayBuilder().setContent(header(title, body)),
+            ),
+        ),
       ],
       flags: V2 | MessageFlags.Ephemeral,
     })
@@ -536,17 +633,18 @@ async function replyNotice(interaction, title, body) {
 /**
  * Opens a new session for the given user and prompts for a theme.
  * @param {import('discord.js').User} user
+ * @param {string} displayName The player's server nickname (or username fallback).
  * @param {import('discord.js').TextBasedChannel} channel
  * @returns {Promise<void>}
  */
-async function startGame(user, channel) {
+async function startGame(user, displayName, channel) {
   if (session.busy) return;
   session.busy = true;
   try {
     session.active = true;
     session.phase = "theme";
     session.playerId = user.id;
-    session.playerTag = user.username;
+    session.playerTag = displayName;
     session.channelId = channel.id;
     session.aki = new AkinatorClient();
     touch();
@@ -556,13 +654,13 @@ async function startGame(user, channel) {
       channel,
       buildMessage({
         header: header(
-          `Think of someone or something, ${user.username}!`,
+          `Think of someone or something, ${displayName}!`,
           "Pick a theme below, or type **Characters**, **Animals**, or **Objects**.",
         ),
         pose: akitude("serene"),
         accent: ACCENT,
         rows: [themeRow()],
-        footer: "-# Only you can play until this game ends.",
+        hint: "Only you can play until this game ends",
       }),
     );
     auditLog("info", "AKINATOR", `${user.tag} started a game.`);
@@ -571,7 +669,7 @@ async function startGame(user, channel) {
     await sendPlain(
       channel,
       buildMessage({
-        header: header(`${icon("WARNING")} The genie won't wake`, "Try again in a moment."),
+        header: header("The genie won't wake", "Try again in a moment.", "WARNING"),
         pose: akitude("stumped"),
         accent: DEFEAT_COLOR,
       }),
@@ -594,7 +692,7 @@ async function chooseTheme(theme, channel) {
   const summoning = await sendPlain(
     channel,
     buildMessage({
-      header: header(`${icon("PENDING")} Summoning the genie…`),
+      header: header("Summoning the genie…", "", "PENDING"),
       pose: akitude("mindreading"),
       accent: ACCENT,
     }),
@@ -612,8 +710,9 @@ async function chooseTheme(theme, channel) {
       channel,
       buildMessage({
         header: header(
-          `${icon("WARNING")} The genie got lost`,
+          "The genie got lost",
           "Game cancelled — type anything to retry.",
+          "WARNING",
         ),
         pose: akitude("stumped"),
         accent: DEFEAT_COLOR,
@@ -643,8 +742,9 @@ async function submitAnswer(key, channel) {
       channel,
       buildMessage({
         header: header(
-          `${icon("WARNING")} Something glitched mid-thought`,
+          "Something glitched mid-thought",
           "Game ended — type anything to start over.",
+          "WARNING",
         ),
         pose: akitude("stumped"),
         accent: DEFEAT_COLOR,
@@ -685,8 +785,9 @@ async function stopGame(channel) {
     channel,
     buildMessage({
       header: header(
-        `${icon("STOP")} Game stopped`,
+        "Game stopped",
         "Thanks for playing — type anything to start a new one!",
+        "STOP",
       ),
       pose: akitude("serene"),
       accent: ACCENT,
@@ -708,8 +809,9 @@ async function resolveGuess(accept, channel) {
       await session.aki.confirmGuess(true);
       const built = buildMessage({
         header: header(
-          `${icon("SUCCESS")} Guessed it!`,
+          "Guessed it!",
           "The genie read your mind — type anything to play again!",
+          "SUCCESS",
         ),
         pose: akitude("confident"),
         accent: WIN_COLOR,
@@ -727,8 +829,9 @@ async function resolveGuess(accept, channel) {
       channel,
       buildMessage({
         header: header(
-          `${icon("WARNING")} The genie vanished`,
+          "The genie vanished",
           "Game ended — type anything to start over.",
+          "WARNING",
         ),
         pose: akitude("stumped"),
         accent: DEFEAT_COLOR,
@@ -752,7 +855,7 @@ async function postState(state, channel) {
     await sendPlain(
       channel,
       buildMessage({
-        header: header(`${icon("WARNING")} The genie went quiet`, "Game ended."),
+        header: header("The genie went quiet", "Game ended.", "WARNING"),
         pose: akitude("stumped"),
         accent: DEFEAT_COLOR,
       }),
@@ -762,15 +865,15 @@ async function postState(state, channel) {
 
   if (state.type === "guess") {
     session.phase = "guess";
-    const desc = state.description ? `\n-# ${state.description}` : "";
+    const desc = state.description ? `\n-# ${sc(state.description)}` : "";
     await sendTracked(
       channel,
       buildMessage({
-        header: header("I think I've got it!", `Is your character…\n\n**${state.name}**${desc}`),
+        header: `-# ${genieIcon} ${sc("Akinator")}\n### ${sc("I think I've got it!")}\n${sc("Is your character…")}\n\n**${sc(state.name)}**${desc}`,
         pose: akitude("confident"),
         accent: ACCENT,
         rows: [guessRow()],
-        footer: "-# Was I right?",
+        hint: "Was I right?",
       }),
     );
     return;
@@ -779,8 +882,9 @@ async function postState(state, channel) {
   if (state.type === "defeat") {
     const built = buildMessage({
       header: header(
-        `${icon("STAFF")} You beat the genie!`,
+        "You beat the genie!",
         "I couldn't guess it. Well played — type anything to challenge me again!",
+        "STAFF",
       ),
       pose: akitude("stumped"),
       accent: DEFEAT_COLOR,
@@ -794,11 +898,11 @@ async function postState(state, channel) {
   await sendTracked(
     channel,
     buildMessage({
-      header: `-# ${icon("BOT")} AKINATOR · QUESTION ${state.step ?? "?"}\n## ${state.question || "…"}`,
+      header: `-# ${genieIcon} ${sc("Akinator")} · ${sc("Question")} ${state.step ?? "?"}\n### ${sc(state.question || "…")}`,
       pose: akitude(questionAkitude(state.step)),
       accent: ACCENT,
       rows: answerRows(),
-      footer: "-# Tap a button or just type your answer · Back or Stop anytime",
+      hint: "Tap a button or just type your answer",
     }),
   );
 }

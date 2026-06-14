@@ -324,44 +324,63 @@ export class AkinatorClient {
   }
 
   /**
+   * Clicks the homepage PLAY control if present; a no-op once past the homepage.
+   * Matches the element whose own text node is "PLAY" (the inner span) rather
+   * than an ancestor whose innerText merely contains it.
+   * @returns {Promise<void>}
+   */
+  async _clickPlay() {
+    try {
+      await this.page.evaluate(() => {
+        for (const e of document.querySelectorAll(
+          "a,button,[role='button'],span,p,div",
+        )) {
+          const own = [...e.childNodes]
+            .filter((n) => n.nodeType === 3)
+            .map((n) => n.nodeValue)
+            .join("")
+            .trim();
+          if (/^play$/i.test(own)) {
+            e.click();
+            return;
+          }
+        }
+      });
+    } catch {
+      void 0;
+    }
+  }
+
+  /**
    * Starts a fresh game in the given theme and returns the first question.
-   * Navigates directly to the theme-selection screen (which begins a new game),
-   * falling back to the home-page PLAY flow if the tile is not reached.
+   * Loads the homepage first to establish a session (deep-linking to
+   * /theme-selection redirects home on a fresh profile), then retries the PLAY
+   * and theme clicks because the SPA binds its handlers a beat after the DOM is
+   * ready, so a single click can be a no-op.
    * @param {"characters"|"animals"|"objects"} [theme="characters"]
    * @returns {Promise<{type:string, [key:string]: any}>} The initial state.
-   * @throws {Error} If the theme tile cannot be selected.
+   * @throws {Error} If the theme tiles never appear or the game fails to start.
    */
   async startGame(theme = "characters") {
     const label = THEME_LABELS[theme] || THEME_LABELS.characters;
     const page = await this._getPage();
 
-    await page.goto(`${BASE}/theme-selection`, {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    });
+    await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 60000 });
     await this._dismissConsent();
 
-    let ready = await this._waitForSelector("li.li-game", 25000);
+    let ready = await this._waitForSelector("li.li-game", 4000);
+    for (let attempt = 0; attempt < 6 && !ready; attempt++) {
+      await this._clickPlay();
+      ready = await this._waitForSelector("li.li-game", 6000);
+    }
+
     if (!ready) {
       if (await this._detectCloudflare()) {
         await this._debugShot("cloudflare");
         throw new Error(
-          "Blocked by Cloudflare challenge (likely the server's datacenter IP).",
+          "Blocked by Cloudflare challenge (egress IP flagged).",
         );
       }
-      await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 60000 });
-      await this._dismissConsent();
-      await page.evaluate(() => {
-        const play = [
-          ...document.querySelectorAll("a,button,[role='button']"),
-        ].find((e) => /^play$/i.test((e.innerText || "").trim()));
-        if (play) play.click();
-      });
-      await this._waitUrl("theme-selection");
-      ready = await this._waitForSelector("li.li-game", 20000);
-    }
-
-    if (!ready) {
       await this._debugShot("notiles");
       throw new Error("Akinator theme tiles never appeared.");
     }

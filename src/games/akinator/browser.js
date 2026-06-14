@@ -34,13 +34,10 @@ const LAUNCH_ARGS = [
   "--disable-extensions",
   "--disable-background-networking",
   "--window-size=1280,900",
-  // Akinator's Cloudflare hard-blocks datacenter IPs; route egress through a
-  // proxy (residential / WARP / etc.) when AKINATOR_PROXY is set. Forcing IPv4
-  // avoids a hang when the container lacks working IPv6.
+  "--dns-prefetch-disable",
   ...(process.env.AKINATOR_PROXY
     ? [`--proxy-server=${process.env.AKINATOR_PROXY}`]
     : []),
-  "--dns-prefetch-disable",
 ];
 
 puppeteerExtra.use(StealthPlugin());
@@ -67,6 +64,7 @@ export async function getBrowser() {
       userDataDir: PROFILE_DIR,
       headless: "new",
       timeout: 60000,
+      protocolTimeout: 240000,
       args: LAUNCH_ARGS,
     });
     b.on("disconnected", () => {

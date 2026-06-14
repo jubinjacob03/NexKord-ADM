@@ -69,8 +69,17 @@ export class AkinatorClient {
       });
     }
     await this.page.setUserAgent(UA);
-    this.page.setDefaultNavigationTimeout(60000);
-    this.page.setDefaultTimeout(60000);
+    await this.page.setRequestInterception(true);
+    this.page.on("request", (req) => {
+      const type = req.resourceType();
+      if (type === "image" || type === "media" || type === "font") {
+        req.abort().catch(() => {});
+      } else {
+        req.continue().catch(() => {});
+      }
+    });
+    this.page.setDefaultNavigationTimeout(90000);
+    this.page.setDefaultTimeout(90000);
     return this.page;
   }
 
@@ -198,7 +207,7 @@ export class AkinatorClient {
             (name.innerText || "").trim().length > 0;
           return guessing || (!!step && step !== prev);
         },
-        { timeout: 15000 },
+        { timeout: 25000 },
         prevStep,
       );
     } catch {
@@ -214,7 +223,7 @@ export class AkinatorClient {
    * @param {number} [timeout=20000]
    * @returns {Promise<void>}
    */
-  async _waitForRenderedState(timeout = 20000) {
+  async _waitForRenderedState(timeout = 30000) {
     try {
       await this.page.waitForFunction(
         () => {
@@ -365,13 +374,13 @@ export class AkinatorClient {
     const label = THEME_LABELS[theme] || THEME_LABELS.characters;
     const page = await this._getPage();
 
-    await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 90000 });
     await this._dismissConsent();
 
-    let ready = await this._waitForSelector("li.li-game", 4000);
-    for (let attempt = 0; attempt < 6 && !ready; attempt++) {
+    let ready = false;
+    for (let attempt = 0; attempt < 8 && !ready; attempt++) {
       await this._clickPlay();
-      ready = await this._waitForSelector("li.li-game", 6000);
+      ready = await this._waitForSelector("li.li-game", 8000);
     }
 
     if (!ready) {

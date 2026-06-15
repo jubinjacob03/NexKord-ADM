@@ -30,32 +30,20 @@ services:
 
   # Cloudflare WARP egress for the Akinator browser. Akinator's Cloudflare
   # hard-blocks datacenter IPs (403); WARP provides a non-datacenter egress.
-  # The bot reaches it at socks5://warp:1080 (see AKINATOR_PROXY in .env).
+  # This uses userspace WireGuard (wireproxy) to WARP's nearest-edge anycast
+  # endpoint for low latency, vs. the slower MASQUE-based warp-cli. No
+  # privileged mode or TUN device needed. Config is generated once by
+  # scripts/setup-warp-wireproxy.sh. The bot reaches it at socks5://warp:1080.
   warp:
-    image: caomingjun/warp
+    image: ghcr.io/whyvl/wireproxy:latest
     container_name: warp
     restart: unless-stopped
-    cap_add:
-      - NET_ADMIN
-    device_cgroup_rules:
-      - 'c 10:200 rwm'
-    sysctls:
-      - net.ipv4.conf.all.src_valid_mark=1
-    environment:
-      - WARP_SLEEP=2
     volumes:
-      - ./data/warp:/var/lib/cloudflare-warp
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - "curl -fsS --socks5-hostname localhost:1080 https://www.cloudflare.com/cdn-cgi/trace | grep -q warp=on"
-      interval: 20s
-      timeout: 10s
-      retries: 6
+      - ./data/warp/wireproxy.conf:/etc/wireproxy/config:ro
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 64M
           cpus: '0.3'
 
   impostor:

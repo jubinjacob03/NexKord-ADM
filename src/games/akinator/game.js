@@ -344,6 +344,42 @@ async function retireLastMessage() {
 }
 
 /**
+ * Immediately edits the tracked message into a button-less "reading your mind"
+ * card. This acknowledges the player's action the instant it arrives — masking
+ * the proxy round-trip latency and preventing double submissions while the slow
+ * browser step runs. The next state replaces this card when ready.
+ * @returns {Promise<void>}
+ */
+async function markThinking() {
+  const msg = session.lastMsg;
+  session.lastMsg = null;
+  session.lastRetired = null;
+  if (!msg) return;
+  const pose = akitude("mindreading");
+  await msg
+    .edit({
+      components: [
+        brandFooter(
+          new ContainerBuilder()
+            .setAccentColor(ACCENT)
+            .addSectionComponents(
+              new SectionBuilder()
+                .addTextDisplayComponents(
+                  new TextDisplayBuilder().setContent(
+                    header("Reading your mind…", "", "PENDING"),
+                  ),
+                )
+                .setThumbnailAccessory(new ThumbnailBuilder().setURL(pose.url)),
+            ),
+        ),
+      ],
+      files: [pose.attachment],
+      flags: V2,
+    })
+    .catch(() => {});
+}
+
+/**
  * Ensures the circular genie persona emoji exists on the application, creating
  * it from the bundled icon on first run. Falls back to 🧞 on any failure.
  * @param {import('discord.js').Client} client
@@ -734,6 +770,7 @@ async function submitAnswer(key, channel) {
   if (session.busy || session.phase !== "question") return;
   session.busy = true;
   try {
+    await markThinking();
     const state = await session.aki.answer(key);
     await postState(state, channel);
   } catch (err) {
@@ -765,6 +802,7 @@ async function doBack(channel) {
   if (session.busy || session.phase !== "question") return;
   session.busy = true;
   try {
+    await markThinking();
     const state = await session.aki.back();
     await postState(state, channel);
   } catch (err) {
@@ -805,6 +843,7 @@ async function resolveGuess(accept, channel) {
   if (session.busy || session.phase !== "guess") return;
   session.busy = true;
   try {
+    await markThinking();
     if (accept) {
       await session.aki.confirmGuess(true);
       const built = buildMessage({

@@ -213,7 +213,7 @@ export class AkinatorClient {
     } catch {
       void 0;
     }
-    await sleep(600);
+    await sleep(300);
   }
 
   /**
@@ -458,7 +458,9 @@ export class AkinatorClient {
       a.click();
       return true;
     });
-    if (did) await sleep(2200);
+    if (did) {
+      await this._waitForRenderedState();
+    }
     return this._readState();
   }
 
@@ -476,8 +478,10 @@ export class AkinatorClient {
       );
       if (a) a.click();
     }, accept);
-    await sleep(2500);
-    if (accept) return { type: "win" };
+    if (accept) {
+      await sleep(800);
+      return { type: "win" };
+    }
     await this._waitForRenderedState();
     return this._readState();
   }

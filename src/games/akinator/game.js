@@ -79,7 +79,7 @@ let lastBusyReplyAt = 0;
  */
 const session = {
   active: false,
-  /** @type {"theme"|"question"|"guess"|null} */
+  /** @type {"question"|"guess"|null} */
   phase: null,
   playerId: null,
   playerTag: null,
@@ -110,17 +110,6 @@ const ANSWER_WORDS = {
   pn: "probably_not", unlikely: "probably_not", "i don't think so": "probably_not",
 };
 
-/**
- * Maps free-text input to a theme key.
- * @type {Record<string, string>}
- */
-const THEME_WORDS = {
-  characters: "characters", character: "characters", char: "characters",
-  c: "characters", people: "characters", person: "characters",
-  animals: "animals", animal: "animals", a: "animals",
-  objects: "objects", object: "objects", o: "objects", thing: "objects",
-};
-
 const STOP_WORDS = new Set(["stop", "quit", "cancel", "end", "exit"]);
 const BACK_WORDS = new Set(["back", "b", "undo", "previous"]);
 
@@ -131,15 +120,6 @@ const BACK_WORDS = new Set(["back", "b", "undo", "previous"]);
  */
 function parseAnswer(text) {
   return ANSWER_WORDS[text] ?? null;
-}
-
-/**
- * Resolves free text to a theme key.
- * @param {string} text
- * @returns {string|null}
- */
-function parseTheme(text) {
-  return THEME_WORDS[text] ?? null;
 }
 
 /**
@@ -174,18 +154,6 @@ function greyButton(id, label, emoji = null) {
     );
   }
   return button;
-}
-
-/**
- * Builds the theme-selection button row.
- * @returns {ActionRowBuilder<ButtonBuilder>}
- */
-function themeRow() {
-  return new ActionRowBuilder().addComponents(
-    greyButton("aki_theme_characters", "Characters"),
-    greyButton("aki_theme_animals", "Animals"),
-    greyButton("aki_theme_objects", "Objects"),
-  );
 }
 
 /**
@@ -514,18 +482,6 @@ export async function handleAkinatorMessage(message) {
       return;
     }
 
-    if (session.phase === "theme") {
-      const theme = parseTheme(low);
-      if (!theme) {
-        await message
-          .reply("Pick a theme: **Characters**, **Animals**, or **Objects** (or tap a button).")
-          .catch(() => {});
-        return;
-      }
-      await chooseTheme(theme, message.channel);
-      return;
-    }
-
     if (session.phase === "guess") {
       const yn = parseYesNo(low);
       if (yn === null) {
@@ -587,11 +543,6 @@ export async function handleAkinatorButton(interaction) {
       await doBack(interaction.channel);
       return true;
     }
-    if (id.startsWith("aki_theme_")) {
-      await interaction.deferUpdate().catch(() => {});
-      await chooseTheme(id.replace("aki_theme_", ""), interaction.channel);
-      return true;
-    }
     if (id.startsWith("aki_ans_")) {
       await interaction.deferUpdate().catch(() => {});
       await submitAnswer(id.replace("aki_ans_", ""), interaction.channel);
@@ -634,7 +585,10 @@ async function replyNotice(interaction, title, body) {
 }
 
 /**
- * Opens a new session for the given user and prompts for a theme.
+ * Opens a new session for the given user and starts a Characters game straight
+ * away (the only supported theme). Posts a transient "summoning" card while the
+ * browser clears Cloudflare and fetches the first question, then replaces it
+ * with the question card.
  * @param {import('discord.js').User} user
  * @param {string} displayName The player's server nickname (or username fallback).
  * @param {import('discord.js').TextBasedChannel} channel
@@ -643,71 +597,37 @@ async function replyNotice(interaction, title, body) {
 async function startGame(user, displayName, channel) {
   if (session.busy) return;
   session.busy = true;
+  let summoning = null;
   try {
     session.active = true;
-    session.phase = "theme";
+    session.phase = "question";
     session.playerId = user.id;
     session.playerTag = displayName;
     session.channelId = channel.id;
+    session.theme = "characters";
     session.aki = new AkinatorClient();
     touch();
     if (gameIdleTimer) clearTimeout(gameIdleTimer);
+    auditLog("info", "AKINATOR", `${user.tag} started a game.`);
 
-    await sendTracked(
+    summoning = await sendPlain(
       channel,
       buildMessage({
         header: header(
-          `Think of someone or something, ${displayName}!`,
-          "Pick a theme below, or type **Characters**, **Animals**, or **Objects**.",
+          "Summoning the genie…",
+          `Think of a character, ${displayName} — real or fictional!`,
+          "PENDING",
         ),
-        pose: akitude("serene"),
+        pose: akitude("mindreading"),
         accent: ACCENT,
-        rows: [themeRow()],
-        hint: "Only you can play until this game ends",
       }),
     );
-    auditLog("info", "AKINATOR", `${user.tag} started a game.`);
-  } catch (err) {
-    auditLog("error", "AKINATOR", `startGame failed: ${err.message}`);
-    await sendPlain(
-      channel,
-      buildMessage({
-        header: header("The genie won't wake", "Try again in a moment.", "WARNING"),
-        pose: akitude("stumped"),
-        accent: DEFEAT_COLOR,
-      }),
-    );
-    await endGame("start-error");
-  } finally {
-    session.busy = false;
-  }
-}
 
-/**
- * Begins the live game in the chosen theme and posts the first question.
- * @param {string} theme
- * @param {import('discord.js').TextBasedChannel} channel
- * @returns {Promise<void>}
- */
-async function chooseTheme(theme, channel) {
-  if (session.busy || session.phase !== "theme") return;
-  session.busy = true;
-  const summoning = await sendPlain(
-    channel,
-    buildMessage({
-      header: header("Summoning the genie…", "", "PENDING"),
-      pose: akitude("mindreading"),
-      accent: ACCENT,
-    }),
-  );
-  try {
-    session.theme = theme;
-    const state = await session.aki.startGame(theme);
-    session.phase = "question";
+    const state = await session.aki.startGame("characters");
     if (summoning) await summoning.delete().catch(() => {});
     await postState(state, channel);
   } catch (err) {
-    auditLog("error", "AKINATOR", `chooseTheme failed: ${err.message}`);
+    auditLog("error", "AKINATOR", `startGame failed: ${err.message}`);
     if (summoning) await summoning.delete().catch(() => {});
     await sendPlain(
       channel,
@@ -721,7 +641,7 @@ async function chooseTheme(theme, channel) {
         accent: DEFEAT_COLOR,
       }),
     );
-    await endGame("theme-error");
+    await endGame("start-error");
   } finally {
     session.busy = false;
   }

@@ -161,10 +161,3 @@ function isConnected(b) {
   if (typeof b.isConnected === "function") return b.isConnected();
   return b.connected !== false;
 }
-
-/**
- * @returns {boolean} Whether the dedicated browser is currently open.
- */
-export function isBrowserOpen() {
-  return isConnected(browser);
-}

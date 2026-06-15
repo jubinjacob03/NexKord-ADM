@@ -84,15 +84,14 @@ const session = {
   playerId: null,
   playerTag: null,
   channelId: null,
-  theme: null,
   /** @type {AkinatorClient | null} */
   aki: null,
   busy: false,
   lastActivity: 0,
   /** @type {import('discord.js').Message | null} */
   lastMsg: null,
-  /** @type {ContainerBuilder[] | null} Button-less rendering of {@link session.lastMsg}. */
-  lastRetired: null,
+  /** @type {{kind: "question"|"guess", data: object} | null} Data to re-render {@link session.lastMsg} without controls. */
+  lastCard: null,
 };
 
 /**
@@ -135,43 +134,65 @@ function parseYesNo(text) {
 }
 
 /**
- * Builds a uniformly grey button. An optional icon-map key (uppercase) resolves
- * to a custom emoji; a raw emoji string is used as-is; omit it for a text-only
- * button. With grey buttons the icon, when present, conveys the meaning.
- * @param {string} id Custom ID.
- * @param {string} label Button label.
- * @param {string|import('discord.js').ComponentEmojiResolvable} [emoji] Icon key or raw emoji.
- * @returns {ButtonBuilder}
+ * Answer keys mapped to their button label and icon-map emoji key. Buttons are
+ * uniformly Secondary (grey); the icon carries the meaning. The map also drives
+ * the answer-feedback annotation on retired cards.
+ * @type {Record<string, {label: string, emoji: string}>}
  */
-function greyButton(id, label, emoji = null) {
-  const button = new ButtonBuilder()
-    .setCustomId(id)
-    .setLabel(sc(label))
-    .setStyle(ButtonStyle.Secondary);
-  if (emoji) {
-    button.setEmoji(
-      typeof emoji === "string" && /^[A-Z0-9_]+$/.test(emoji) ? emojiObj(emoji) : emoji,
-    );
-  }
-  return button;
+const ANSWER_META = {
+  yes: { label: "Yes", emoji: "AKI_YES" },
+  probably: { label: "Probably", emoji: "AKI_PROBABLY" },
+  idk: { label: "Don't know", emoji: "AKI_IDK" },
+  probably_not: { label: "Probably not", emoji: "AKI_PROBABLY_NOT" },
+  no: { label: "No", emoji: "AKI_NO" },
+};
+
+const ANSWER_ORDER = ["yes", "probably", "idk", "probably_not", "no"];
+
+/**
+ * Renders a ten-segment unicode progress bar for a 0–100 confidence value.
+ * @param {number} pct
+ * @returns {string}
+ */
+function progressBar(pct) {
+  const p = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+  const filled = Math.round(p / 10);
+  return `${"▰".repeat(filled)}${"▱".repeat(10 - filled)}`;
 }
 
 /**
- * Builds the answer rows: the five responses laid out as a yes-to-no gradient,
+ * Builds a button with an explicit style and optional emoji. An uppercase
+ * icon-map key resolves to a custom emoji; any other string is used as a raw
+ * unicode emoji.
+ * @param {string} id Custom ID.
+ * @param {string} label Button label (small-capped).
+ * @param {ButtonStyle} style
+ * @param {string} [emoji] Icon-map key or raw emoji.
+ * @returns {ButtonBuilder}
+ */
+function button(id, label, style, emoji = null) {
+  const b = new ButtonBuilder().setCustomId(id).setLabel(sc(label)).setStyle(style);
+  if (emoji) {
+    b.setEmoji(/^[A-Z0-9_]+$/.test(emoji) ? emojiObj(emoji) : emoji);
+  }
+  return b;
+}
+
+/**
+ * Builds the answer rows: the five responses as a coloured yes-to-no gradient,
  * plus the back and stop controls.
  * @returns {ActionRowBuilder<ButtonBuilder>[]}
  */
 function answerRows() {
   const answers = new ActionRowBuilder().addComponents(
-    greyButton("aki_ans_yes", "Yes"),
-    greyButton("aki_ans_probably", "Probably"),
-    greyButton("aki_ans_idk", "Don't know"),
-    greyButton("aki_ans_probably_not", "Probably not"),
-    greyButton("aki_ans_no", "No"),
+    ...ANSWER_ORDER.map((key) => {
+      const m = ANSWER_META[key];
+      return button(`aki_ans_${key}`, m.label, ButtonStyle.Secondary, m.emoji);
+    }),
   );
   const controls = new ActionRowBuilder().addComponents(
-    greyButton("aki_back", "Back", "PREVIOUS"),
-    greyButton("aki_stop", "Stop", "STOP"),
+    button("aki_back", "Back", ButtonStyle.Secondary, "AKI_BACK"),
+    button("aki_stop", "Stop", ButtonStyle.Secondary, "AKI_STOP"),
   );
   return [answers, controls];
 }
@@ -182,8 +203,8 @@ function answerRows() {
  */
 function guessRow() {
   return new ActionRowBuilder().addComponents(
-    greyButton("aki_guess_yes", "Yes, that's it!", "SUCCESS"),
-    greyButton("aki_guess_no", "No, keep going", "ERROR"),
+    button("aki_guess_yes", "That's the one", ButtonStyle.Secondary, "AKI_CORRECT"),
+    button("aki_guess_no", "Keep guessing", ButtonStyle.Secondary, "AKI_RETRY"),
   );
 }
 
@@ -228,9 +249,7 @@ function renderContainer({ header, pose, accent, rows = [], hint = null }, withC
       .setThumbnailAccessory(new ThumbnailBuilder().setURL(pose.url)),
   );
   if (withControls && rows.length) {
-    container.addSeparatorComponents(
-      new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Large),
-    );
+    addGap(container, true);
     for (const row of rows) container.addActionRowComponents(row);
   }
   brandFooter(container, withControls ? hint : null);
@@ -238,32 +257,114 @@ function renderContainer({ header, pose, accent, rows = [], hint = null }, withC
 }
 
 /**
- * Builds an interactive message payload together with its button-less retired
- * variant and the pose attachment.
+ * Builds a plain (non-interactive) card payload with its pose attachment, used
+ * for status cards such as summoning, win, defeat and stop.
  * @param {object} opts See {@link renderContainer}.
- * @returns {{components: ContainerBuilder[], retired: ContainerBuilder[], files: import('discord.js').AttachmentBuilder[]}}
+ * @returns {{components: ContainerBuilder[], files: import('discord.js').AttachmentBuilder[]}}
  */
 function buildMessage(opts) {
   return {
     components: [renderContainer(opts, true)],
-    retired: [renderContainer(opts, false)],
     files: [opts.pose.attachment],
   };
 }
 
 /**
- * Composes the header markdown: a muted persona line, an H3 small-caps title
- * (optionally icon-prefixed), and an optional small-caps body. Icons are kept
- * outside {@link sc} so emoji tokens are never corrupted.
- * @param {string} title Title text (rendered as H3 small caps).
- * @param {string} [body=""] Optional body text (small caps).
+ * Composes the status-card header markdown: a muted persona line, the title
+ * (optionally icon-prefixed), and an optional subtext body. Icons are kept
+ * outside {@link sc} so emoji tokens are never corrupted. No bold is used;
+ * hierarchy comes from normal text vs. `-#` subtext.
+ * @param {string} title Title text.
+ * @param {string} [body=""] Optional body text (subtext).
  * @param {string|null} [titleIcon=null] Optional icon-map key prefixed to the title.
  * @returns {string}
  */
 function header(title, body = "", titleIcon = null) {
   const persona = `-# ${genieIcon} ${sc("Akinator")}`;
-  const titleLine = `### ${titleIcon ? `${icon(titleIcon)} ` : ""}${sc(title)}`;
-  return body ? `${persona}\n${titleLine}\n${sc(body)}` : `${persona}\n${titleLine}`;
+  const titleLine = `${titleIcon ? `${icon(titleIcon)} ` : ""}${sc(title)}`;
+  return body ? `${persona}\n\n${titleLine}\n-# ${sc(body)}` : `${persona}\n\n${titleLine}`;
+}
+
+/**
+ * Adds a Components V2 separator to a container: a divider line or a plain gap.
+ * @param {ContainerBuilder} container
+ * @param {boolean} divider Whether a visible line is drawn.
+ * @param {SeparatorSpacingSize} [spacing=SeparatorSpacingSize.Small]
+ * @returns {void}
+ */
+function addGap(container, divider, spacing = SeparatorSpacingSize.Small) {
+  container.addSeparatorComponents(
+    new SeparatorBuilder().setDivider(divider).setSpacing(spacing),
+  );
+}
+
+/**
+ * Renders a question card. Persona, question and confidence bar are grouped in
+ * one section beside the genie thumbnail (avoiding the uneven gap a separate
+ * full-width line leaves under the tall portrait), followed by a single divider
+ * and the controls when interactive. All separators use the same style for a
+ * consistent rhythm.
+ * @param {{step: string|number, question: string, progression: number}} data
+ * @param {{interactive: boolean}} opts
+ * @returns {{components: ContainerBuilder[], files: import('discord.js').AttachmentBuilder[]}}
+ */
+function renderQuestion(data, { interactive }) {
+  const pose = akitude(questionAkitude(data.step));
+  const text = [
+    `-# ${genieIcon} ${sc("Akinator")} · ${sc("Question")} ${data.step ?? "?"}`,
+    `${sc(data.question || "…")}`,
+    `-# ${progressBar(data.progression)}  ${Math.round(Number(data.progression) || 0)}% ${sc("sure")}`,
+  ].join("\n");
+
+  const container = new ContainerBuilder().setAccentColor(ACCENT);
+  container.addSectionComponents(
+    new SectionBuilder()
+      .addTextDisplayComponents(new TextDisplayBuilder().setContent(text))
+      .setThumbnailAccessory(new ThumbnailBuilder().setURL(pose.url)),
+  );
+  if (interactive) {
+    addGap(container, true);
+    for (const row of answerRows()) container.addActionRowComponents(row);
+  }
+  brandFooter(container, interactive ? "Tap a button or type your answer" : null);
+  return { components: [container], files: [pose.attachment] };
+}
+
+/**
+ * Renders a guess card. The reveal (intro, name, description, confidence) is
+ * grouped in one section beside the confident genie, followed by a single
+ * divider and the controls when interactive.
+ * @param {{name: string, description?: string, progression?: number}} data
+ * @param {{interactive: boolean}} opts
+ * @returns {{components: ContainerBuilder[], files: import('discord.js').AttachmentBuilder[]}}
+ */
+function renderGuess(data, { interactive }) {
+  const pose = akitude("confident");
+  const lines = [
+    `-# ${genieIcon} ${sc("Akinator")}`,
+    `-# ${sc("I think I've got it! · Is your character…")}`,
+    "",
+    `${icon("AKI_CORRECT")} ${sc(data.name)}`,
+  ];
+  if (data.description) lines.push(`-# ${sc(data.description)}`);
+  if (typeof data.progression === "number") {
+    lines.push(
+      `-# ${progressBar(data.progression)}  ${Math.round(data.progression)}% ${sc("sure")}`,
+    );
+  }
+
+  const container = new ContainerBuilder().setAccentColor(WIN_COLOR);
+  container.addSectionComponents(
+    new SectionBuilder()
+      .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join("\n")))
+      .setThumbnailAccessory(new ThumbnailBuilder().setURL(pose.url)),
+  );
+  if (interactive) {
+    addGap(container, true);
+    container.addActionRowComponents(guessRow());
+  }
+  brandFooter(container, interactive ? "Was I right?" : null);
+  return { components: [container], files: [pose.attachment] };
 }
 
 /**
@@ -291,55 +392,99 @@ async function sendWithRetry(channel, payload, label) {
 }
 
 /**
- * Sends an interactive (buttoned) message, retiring the previously tracked one
- * so a player cannot act on a superseded question or guess.
+ * Builds the reply-reference fragment so a card threads onto a prior message,
+ * without pinging its author. Returns an empty object when there is nothing to
+ * reply to (e.g. the opening question).
+ * @param {import('discord.js').Message|null} msg
+ * @returns {object}
+ */
+function replyRef(msg) {
+  return msg
+    ? {
+        reply: { messageReference: msg.id, failIfNotExists: false },
+        allowedMentions: { repliedUser: false },
+      }
+    : {};
+}
+
+/**
+ * Posts the player's choice as a compact message replying to the card they
+ * acted on, giving the chat a visible back-and-forth instead of a one-sided
+ * stream of bot cards. Returns the message so the next card can reply onto it.
  * @param {import('discord.js').TextBasedChannel} channel
- * @param {{components: ContainerBuilder[], retired: ContainerBuilder[], files: import('discord.js').AttachmentBuilder[]}} built
+ * @param {import('discord.js').Message|null} replyToMsg The card being answered.
+ * @param {string} emojiKey Icon-map key for the choice.
+ * @param {string} label Choice label.
  * @returns {Promise<import('discord.js').Message|null>}
  */
-async function sendTracked(channel, built) {
+async function postChoice(channel, replyToMsg, emojiKey, label) {
+  const content = `${icon(emojiKey)} ${sc(label)}\n-# ${sc(session.playerTag || "Player")}`;
+  return sendWithRetry(
+    channel,
+    { content, allowedMentions: { parse: [] }, ...replyRef(replyToMsg) },
+    "choice",
+  );
+}
+
+/**
+ * Sends an interactive (buttoned) card, retiring the previously tracked one so
+ * a player cannot act on a superseded question or guess. Stores the card data
+ * so the message can later be re-rendered without controls, and optionally
+ * threads the card as a reply to `replyTo`.
+ * @param {import('discord.js').TextBasedChannel} channel
+ * @param {{components: ContainerBuilder[], files: import('discord.js').AttachmentBuilder[]}} built
+ * @param {{kind: "question"|"guess", data: object}} card
+ * @param {import('discord.js').Message|null} [replyTo]
+ * @returns {Promise<import('discord.js').Message|null>}
+ */
+async function sendTracked(channel, built, card, replyTo = null) {
   retireLastMessage();
   const msg = await sendWithRetry(
     channel,
-    { components: built.components, files: built.files, flags: V2 },
-    "tracked",
+    { components: built.components, files: built.files, flags: V2, ...replyRef(replyTo) },
+    card.kind,
   );
   if (msg) {
     session.lastMsg = msg;
-    session.lastRetired = built.retired;
+    session.lastCard = card;
   }
   return msg;
 }
 
 /**
- * Sends a non-interactive V2 message (no buttons to track).
+ * Sends a non-interactive V2 message (no buttons to track), optionally threaded
+ * as a reply to `replyTo`.
  * @param {import('discord.js').TextBasedChannel} channel
  * @param {{components: ContainerBuilder[], files: import('discord.js').AttachmentBuilder[]}} built
+ * @param {import('discord.js').Message|null} [replyTo]
  * @returns {Promise<import('discord.js').Message|null>}
  */
-async function sendPlain(channel, built) {
+async function sendPlain(channel, built, replyTo = null) {
   return sendWithRetry(
     channel,
-    { components: built.components, files: built.files, flags: V2 },
+    { components: built.components, files: built.files, flags: V2, ...replyRef(replyTo) },
     "plain",
   );
 }
 
 /**
- * Retires the currently tracked message: clears tracking synchronously, then
- * fires a button-less edit without awaiting. Used as instant zero-upload
- * feedback (the buttons vanish the moment an action is taken) that overlaps the
- * browser round-trip, and to neutralise superseded cards.
+ * Retires the currently tracked card: clears tracking synchronously, then fires
+ * a controls-free edit without awaiting. Re-renders the card from its stored
+ * data with the buttons removed, neutralising a superseded question or guess.
  * @returns {void}
  */
 function retireLastMessage() {
   const msg = session.lastMsg;
-  const retired = session.lastRetired;
+  const card = session.lastCard;
   session.lastMsg = null;
-  session.lastRetired = null;
-  if (msg && retired) {
-    msg.edit({ components: retired, flags: V2 }).catch(() => {});
-  }
+  session.lastCard = null;
+  if (!msg || !card) return;
+
+  const built =
+    card.kind === "question"
+      ? renderQuestion(card.data, { interactive: false })
+      : renderGuess(card.data, { interactive: false });
+  msg.edit({ components: built.components, flags: V2 }).catch(() => {});
 }
 
 /**
@@ -421,7 +566,6 @@ async function endGame(reason) {
   session.playerId = null;
   session.playerTag = null;
   session.channelId = null;
-  session.theme = null;
   session.aki = null;
   session.busy = false;
   if (aki) await aki.dispose().catch(() => {});
@@ -487,7 +631,7 @@ export async function handleAkinatorMessage(message) {
                     new TextDisplayBuilder().setContent(
                       header(
                         "The genie is busy",
-                        `A game with **${session.playerTag}** is already in progress — please wait your turn!`,
+                        `A game with ${session.playerTag} is already in progress — please wait your turn!`,
                       ),
                     ),
                   ),
@@ -513,7 +657,7 @@ export async function handleAkinatorMessage(message) {
     if (session.phase === "guess") {
       const yn = parseYesNo(low);
       if (yn === null) {
-        await message.reply("Was I right? Answer **yes** or **no**.").catch(() => {});
+        await message.reply("Was I right? Answer yes or no.").catch(() => {});
         return;
       }
       await resolveGuess(yn, message.channel);
@@ -524,7 +668,7 @@ export async function handleAkinatorMessage(message) {
     if (!key) {
       await message
         .reply(
-          "I didn't catch that. Reply **yes**, **no**, **don't know**, **probably**, or **probably not** (or use the buttons).",
+          "I didn't catch that. Reply yes, no, don't know, probably, or probably not (or use the buttons).",
         )
         .catch(() => {});
       return;
@@ -553,18 +697,18 @@ export async function handleAkinatorButton(interaction) {
       await replyNotice(
         interaction,
         "Not your game",
-        `This is **${session.playerTag}**'s game — start your own when it's free!`,
+        `This is ${session.playerTag}'s game — start your own when it's free!`,
       );
       return true;
     }
 
     const id = interaction.customId;
+    const ack = interaction.deferUpdate().catch((e) =>
+      auditLog("warn", "AKINATOR", `deferUpdate failed: ${e.message}`),
+    );
     touch();
     auditLog("info", "AKINATOR", `button '${id}' by ${interaction.user.tag}`);
-
-    await interaction.deferUpdate().catch((e) =>
-      auditLog("warn", "AKINATOR", `deferUpdate failed (network?): ${e.message}`),
-    );
+    await ack;
 
     if (id === "aki_stop") {
       await stopGame(interaction.channel);
@@ -626,7 +770,6 @@ async function startGame(user, displayName, channel) {
     session.playerId = user.id;
     session.playerTag = displayName;
     session.channelId = channel.id;
-    session.theme = "characters";
     session.aki = new AkinatorClient();
     touch();
     if (gameIdleTimer) clearTimeout(gameIdleTimer);
@@ -638,14 +781,14 @@ async function startGame(user, displayName, channel) {
         header: header(
           "Summoning the genie…",
           `Think of a character, ${displayName} — real or fictional!`,
-          "PENDING",
+          "AKI_LOADING",
         ),
         pose: akitude("mindreading"),
         accent: ACCENT,
       }),
     );
 
-    const state = await session.aki.startGame("characters");
+    const state = await session.aki.startGame();
     if (summoning) await summoning.delete().catch(() => {});
     await postState(state, channel);
   } catch (err) {
@@ -679,9 +822,12 @@ async function submitAnswer(key, channel) {
   if (session.busy || session.phase !== "question") return;
   session.busy = true;
   try {
+    const qMsg = session.lastMsg;
     retireLastMessage();
+    const meta = ANSWER_META[key];
+    const choice = await postChoice(channel, qMsg, meta?.emoji, meta?.label || key);
     const state = await session.aki.answer(key);
-    await postState(state, channel);
+    await postState(state, channel, choice);
   } catch (err) {
     auditLog("error", "AKINATOR", `submitAnswer failed: ${err.message}`);
     await sendPlain(
@@ -711,9 +857,11 @@ async function doBack(channel) {
   if (session.busy || session.phase !== "question") return;
   session.busy = true;
   try {
+    const qMsg = session.lastMsg;
     retireLastMessage();
+    const choice = await postChoice(channel, qMsg, "AKI_BACK", "Back");
     const state = await session.aki.back();
-    await postState(state, channel);
+    await postState(state, channel, choice);
   } catch (err) {
     auditLog("error", "AKINATOR", `back failed: ${err.message}`);
   } finally {
@@ -752,8 +900,10 @@ async function resolveGuess(accept, channel) {
   if (session.busy || session.phase !== "guess") return;
   session.busy = true;
   try {
+    const gMsg = session.lastMsg;
     retireLastMessage();
     if (accept) {
+      const choice = await postChoice(channel, gMsg, "AKI_CORRECT", "That's the one");
       await session.aki.confirmGuess(true);
       const built = buildMessage({
         header: header(
@@ -765,11 +915,12 @@ async function resolveGuess(accept, channel) {
         accent: WIN_COLOR,
       });
       await endGame("win");
-      await sendPlain(channel, built);
+      await sendPlain(channel, built, choice);
     } else {
+      const choice = await postChoice(channel, gMsg, "AKI_RETRY", "Keep guessing");
       const state = await session.aki.confirmGuess(false);
       session.phase = "question";
-      await postState(state, channel);
+      await postState(state, channel, choice);
     }
   } catch (err) {
     auditLog("error", "AKINATOR", `resolveGuess failed: ${err.message}`);
@@ -792,12 +943,14 @@ async function resolveGuess(accept, channel) {
 }
 
 /**
- * Posts the appropriate card for a state and advances the session phase.
+ * Posts the appropriate card for a state and advances the session phase. When
+ * `replyTo` is given the card is threaded as a reply to it.
  * @param {{type:string, [key:string]: any}} state
  * @param {import('discord.js').TextBasedChannel} channel
+ * @param {import('discord.js').Message|null} [replyTo]
  * @returns {Promise<void>}
  */
-async function postState(state, channel) {
+async function postState(state, channel, replyTo = null) {
   if (!state || !state.type) {
     await endGame("empty-state");
     await sendPlain(
@@ -807,22 +960,23 @@ async function postState(state, channel) {
         pose: akitude("stumped"),
         accent: DEFEAT_COLOR,
       }),
+      replyTo,
     );
     return;
   }
 
   if (state.type === "guess") {
     session.phase = "guess";
-    const desc = state.description ? `\n-# ${sc(state.description)}` : "";
+    const data = {
+      name: state.name,
+      description: state.description,
+      progression: state.progression,
+    };
     await sendTracked(
       channel,
-      buildMessage({
-        header: `-# ${genieIcon} ${sc("Akinator")}\n### ${sc("I think I've got it!")}\n${sc("Is your character…")}\n\n**${sc(state.name)}**${desc}`,
-        pose: akitude("confident"),
-        accent: ACCENT,
-        rows: [guessRow()],
-        hint: "Was I right?",
-      }),
+      renderGuess(data, { interactive: true }),
+      { kind: "guess", data },
+      replyTo,
     );
     return;
   }
@@ -838,20 +992,21 @@ async function postState(state, channel) {
       accent: DEFEAT_COLOR,
     });
     await endGame("defeat");
-    await sendPlain(channel, built);
+    await sendPlain(channel, built, replyTo);
     return;
   }
 
   session.phase = "question";
+  const data = {
+    step: state.step,
+    question: state.question,
+    progression: state.progression,
+  };
   const posted = await sendTracked(
     channel,
-    buildMessage({
-      header: `-# ${genieIcon} ${sc("Akinator")} · ${sc("Question")} ${state.step ?? "?"}\n### ${sc(state.question || "…")}`,
-      pose: akitude(questionAkitude(state.step)),
-      accent: ACCENT,
-      rows: answerRows(),
-      hint: "Tap a button or just type your answer",
-    }),
+    renderQuestion(data, { interactive: true }),
+    { kind: "question", data },
+    replyTo,
   );
   if (!posted) {
     auditLog("warn", "AKINATOR", `failed to post question ${state.step} card`);

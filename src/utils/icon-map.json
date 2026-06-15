@@ -438,5 +438,45 @@
   "LAUNCH_TEAL": {
     "serverEmojiName": "iconLaunchTeal",
     "fallback": "🚀"
+  },
+  "AKI_YES": {
+    "serverEmojiName": "aki_yes",
+    "fallback": "✅"
+  },
+  "AKI_PROBABLY": {
+    "serverEmojiName": "aki_probably",
+    "fallback": "👍"
+  },
+  "AKI_IDK": {
+    "serverEmojiName": "aki_idk",
+    "fallback": "🤔"
+  },
+  "AKI_PROBABLY_NOT": {
+    "serverEmojiName": "aki_probably_not",
+    "fallback": "👎"
+  },
+  "AKI_NO": {
+    "serverEmojiName": "aki_no",
+    "fallback": "❌"
+  },
+  "AKI_CORRECT": {
+    "serverEmojiName": "aki_correct",
+    "fallback": "✅"
+  },
+  "AKI_RETRY": {
+    "serverEmojiName": "aki_retry",
+    "fallback": "🔄"
+  },
+  "AKI_BACK": {
+    "serverEmojiName": "aki_back",
+    "fallback": "⬅️"
+  },
+  "AKI_STOP": {
+    "serverEmojiName": "aki_stop",
+    "fallback": "🛑"
+  },
+  "AKI_LOADING": {
+    "serverEmojiName": "aki_loading",
+    "fallback": "⏳"
   }
 }

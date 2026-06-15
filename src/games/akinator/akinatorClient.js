@@ -214,6 +214,7 @@ export class AkinatorClient {
         name: decodeEntities(data.name_proposition),
         description: decodeEntities(data.description_proposition),
         step: String(this.step),
+        progression: this.progression,
       };
     }
 
@@ -224,17 +225,21 @@ export class AkinatorClient {
     this.step = parseInt(data.step, 10);
     this.progression = parseFloat(data.progression);
     this.question = decodeEntities(data.question);
-    return { type: "question", question: this.question, step: String(this.step) };
+    return {
+      type: "question",
+      question: this.question,
+      step: String(this.step),
+      progression: this.progression,
+    };
   }
 
   /**
    * Starts a fresh Characters game and returns the first question, parsing the
    * session, signature and opening question from the /game response.
-   * @param {"characters"} [_theme="characters"] Accepted for call-site compatibility; ignored.
    * @returns {Promise<{type:string, [key:string]: any}>}
    * @throws {Error} If Cloudflare blocks or the session cannot be parsed.
    */
-  async startGame(_theme = "characters") {
+  async startGame() {
     await this._ensureCleared();
 
     const res = await this._api("/game", { sid: SID, cm: this.childMode });
@@ -264,7 +269,7 @@ export class AkinatorClient {
     this.question = decodeEntities(question);
 
     auditLog("info", "AKINATOR", "Game started (theme=characters).");
-    return { type: "question", question: this.question, step: "0" };
+    return { type: "question", question: this.question, step: "0", progression: 0 };
   }
 
   /**

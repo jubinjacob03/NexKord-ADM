@@ -267,6 +267,30 @@ function header(title, body = "", titleIcon = null) {
 }
 
 /**
+ * Sends a V2 message with a small retry to ride out transient DNS/network
+ * blips to discord.com. Returns the message, or null after all attempts fail.
+ * @param {import('discord.js').TextBasedChannel} channel
+ * @param {object} payload Message options.
+ * @param {string} label Short action label for diagnostic logs.
+ * @returns {Promise<import('discord.js').Message|null>}
+ */
+async function sendWithRetry(channel, payload, label) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return await channel.send(payload);
+    } catch (err) {
+      auditLog(
+        "warn",
+        "AKINATOR",
+        `send '${label}' attempt ${attempt}/3 failed: ${err.message}`,
+      );
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 800));
+    }
+  }
+  return null;
+}
+
+/**
  * Sends an interactive (buttoned) message, retiring the previously tracked one
  * so a player cannot act on a superseded question or guess.
  * @param {import('discord.js').TextBasedChannel} channel
@@ -275,9 +299,11 @@ function header(title, body = "", titleIcon = null) {
  */
 async function sendTracked(channel, built) {
   retireLastMessage();
-  const msg = await channel
-    .send({ components: built.components, files: built.files, flags: V2 })
-    .catch(() => null);
+  const msg = await sendWithRetry(
+    channel,
+    { components: built.components, files: built.files, flags: V2 },
+    "tracked",
+  );
   if (msg) {
     session.lastMsg = msg;
     session.lastRetired = built.retired;
@@ -292,9 +318,11 @@ async function sendTracked(channel, built) {
  * @returns {Promise<import('discord.js').Message|null>}
  */
 async function sendPlain(channel, built) {
-  return channel
-    .send({ components: built.components, files: built.files, flags: V2 })
-    .catch(() => null);
+  return sendWithRetry(
+    channel,
+    { components: built.components, files: built.files, flags: V2 },
+    "plain",
+  );
 }
 
 /**
@@ -532,26 +560,20 @@ export async function handleAkinatorButton(interaction) {
 
     const id = interaction.customId;
     touch();
+    auditLog("info", "AKINATOR", `button '${id}' by ${interaction.user.tag}`);
+
+    await interaction.deferUpdate().catch((e) =>
+      auditLog("warn", "AKINATOR", `deferUpdate failed (network?): ${e.message}`),
+    );
 
     if (id === "aki_stop") {
-      await interaction.deferUpdate().catch(() => {});
       await stopGame(interaction.channel);
-      return true;
-    }
-    if (id === "aki_back") {
-      await interaction.deferUpdate().catch(() => {});
+    } else if (id === "aki_back") {
       await doBack(interaction.channel);
-      return true;
-    }
-    if (id.startsWith("aki_ans_")) {
-      await interaction.deferUpdate().catch(() => {});
+    } else if (id.startsWith("aki_ans_")) {
       await submitAnswer(id.replace("aki_ans_", ""), interaction.channel);
-      return true;
-    }
-    if (id === "aki_guess_yes" || id === "aki_guess_no") {
-      await interaction.deferUpdate().catch(() => {});
+    } else if (id === "aki_guess_yes" || id === "aki_guess_no") {
       await resolveGuess(id === "aki_guess_yes", interaction.channel);
-      return true;
     }
     return true;
   } catch (err) {
@@ -821,7 +843,7 @@ async function postState(state, channel) {
   }
 
   session.phase = "question";
-  await sendTracked(
+  const posted = await sendTracked(
     channel,
     buildMessage({
       header: `-# ${genieIcon} ${sc("Akinator")} · ${sc("Question")} ${state.step ?? "?"}\n### ${sc(state.question || "…")}`,
@@ -831,4 +853,7 @@ async function postState(state, channel) {
       hint: "Tap a button or just type your answer",
     }),
   );
+  if (!posted) {
+    auditLog("warn", "AKINATOR", `failed to post question ${state.step} card`);
+  }
 }

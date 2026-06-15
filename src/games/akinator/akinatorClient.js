@@ -277,6 +277,7 @@ export class AkinatorClient {
     const answerId = ANSWER_IDS[key];
     if (answerId === undefined) throw new Error(`Invalid answer key: ${key}`);
 
+    const fromStep = this.step;
     const res = await this._api("/answer", {
       step: this.step,
       progression: this.progression,
@@ -287,7 +288,13 @@ export class AkinatorClient {
       session: this.session,
       signature: this.signature,
     });
-    return this._consume(res);
+    const state = this._consume(res);
+    auditLog(
+      "info",
+      "AKINATOR",
+      `answer '${key}' @step ${fromStep} -> ${state.type} (step ${this.step}, ${Math.round(this.progression)}%)`,
+    );
+    return state;
   }
 
   /**
@@ -307,7 +314,9 @@ export class AkinatorClient {
       session: this.session,
       signature: this.signature,
     });
-    return this._consume(res);
+    const state = this._consume(res);
+    auditLog("info", "AKINATOR", `back -> ${state.type} (step ${this.step})`);
+    return state;
   }
 
   /**
@@ -319,6 +328,7 @@ export class AkinatorClient {
    */
   async confirmGuess(accept) {
     if (accept) {
+      auditLog("info", "AKINATOR", "guess accepted -> win");
       return { type: "win" };
     }
     const res = await this._api("/exclude", {
@@ -330,7 +340,9 @@ export class AkinatorClient {
       signature: this.signature,
       forward_answer: 1,
     });
-    return this._consume(res);
+    const state = this._consume(res);
+    auditLog("info", "AKINATOR", `guess declined -> ${state.type} (step ${this.step})`);
+    return state;
   }
 
   /**

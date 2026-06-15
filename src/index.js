@@ -21,6 +21,7 @@ import {
   handleAkinatorMessage,
   handleAkinatorButton,
 } from "./games/akinator/game.js";
+import { closeBrowser } from "./games/akinator/browser.js";
 import { initIcons } from "./utils/icons.js";
 
 dotenv.config();
@@ -135,11 +136,14 @@ process.on("uncaughtException", (err) => {
 client.login(process.env.DISCORD_TOKEN);
 
 /**
- * Handles graceful shutdown of the NexKord-ADM client.
- * Destroys the client and exits the process.
+ * Handles graceful shutdown of the NexKord-ADM client. Closes the Akinator
+ * browser cleanly (releasing its profile lock), stops the event server,
+ * destroys the client, and exits.
+ * @returns {Promise<void>}
  */
-const shutdown = () => {
+const shutdown = async () => {
   console.log("[NexKord - ADM] Shutting down gracefully...");
+  await closeBrowser().catch(() => {});
   stopEventServer();
   client.destroy();
   process.exit(0);

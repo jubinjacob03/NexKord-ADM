@@ -1,5 +1,6 @@
 import puppeteerExtra from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { auditLog } from "../../utils/logger.js";
@@ -58,6 +59,51 @@ let browser = null;
 let launching = null;
 
 /**
+ * Removes Chromium's singleton lock artifacts left behind when a previous
+ * container exited uncleanly. Without this, a relaunch fails with
+ * "profile appears to be in use by another Chromium process". Best-effort.
+ * @returns {void}
+ */
+function clearProfileLocks() {
+  for (const name of ["SingletonLock", "SingletonCookie", "SingletonSocket"]) {
+    try {
+      fs.rmSync(path.join(PROFILE_DIR, name), { force: true });
+    } catch {}
+  }
+}
+
+/**
+ * Launches Chromium with the dedicated persistent profile, clearing stale locks
+ * first. If the launch still fails on a profile lock, the profile is reset and
+ * the launch is retried once.
+ * @returns {Promise<import('puppeteer-core').Browser>}
+ */
+async function launchBrowser() {
+  const opts = {
+    executablePath:
+      process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium-browser",
+    userDataDir: PROFILE_DIR,
+    headless: "new",
+    timeout: 60000,
+    protocolTimeout: 240000,
+    args: LAUNCH_ARGS,
+  };
+  clearProfileLocks();
+  try {
+    return await puppeteerExtra.launch(opts);
+  } catch (e) {
+    if (/profile appears to be in use|SingletonLock|ProcessSingleton/i.test(e.message)) {
+      auditLog("warn", "AKINATOR", "Profile locked; resetting and retrying launch.");
+      try {
+        fs.rmSync(PROFILE_DIR, { recursive: true, force: true });
+      } catch {}
+      return puppeteerExtra.launch(opts);
+    }
+    throw e;
+  }
+}
+
+/**
  * Returns the single dedicated Akinator browser, launching it lazily on first
  * use. Concurrent callers share one in-flight launch. The same instance (and its
  * persistent profile) is always reused until closeBrowser() is called.
@@ -69,15 +115,7 @@ export async function getBrowser() {
   if (launching) return launching;
 
   launching = (async () => {
-    const b = await puppeteerExtra.launch({
-      executablePath:
-        process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium-browser",
-      userDataDir: PROFILE_DIR,
-      headless: "new",
-      timeout: 60000,
-      protocolTimeout: 240000,
-      args: LAUNCH_ARGS,
-    });
+    const b = await launchBrowser();
     b.on("disconnected", () => {
       if (browser === b) browser = null;
     });

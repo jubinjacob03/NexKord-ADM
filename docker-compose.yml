@@ -35,7 +35,7 @@ services:
   # privileged mode or TUN device needed. Config is generated once by
   # scripts/setup-warp-wireproxy.sh. The bot reaches it at socks5://warp:1080.
   warp:
-    image: ghcr.io/whyvl/wireproxy:latest
+    image: backplane/wireproxy:latest
     container_name: warp
     restart: unless-stopped
     volumes:

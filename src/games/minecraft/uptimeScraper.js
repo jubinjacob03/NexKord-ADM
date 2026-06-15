@@ -5,8 +5,9 @@ dotenv.config();
 let isScraping = false;
 
 /**
- * Scrapes the remaining uptime from FreeGameHost API.
- * Returns the time string (e.g., "01:30:45") or null on failure.
+ * Fetches the remaining renewal time for the FreeGameHost server via its API
+ * (the server's `expire` timestamp), formatted as "HH:MM:SS".
+ * @returns {Promise<string|null>} The remaining time, or null on failure.
  */
 export async function scrapeUptime() {
   if (isScraping) {

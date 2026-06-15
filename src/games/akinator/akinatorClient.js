@@ -1,37 +1,23 @@
-import path from "path";
-import { fileURLToPath } from "url";
-import { getBrowser } from "./browser.js";
+import { getClient } from "./tlsClient.js";
 import { auditLog } from "../../utils/logger.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const DEBUG_DIR = path.join(__dirname, "..", "..", "..", "logs");
 
 const BASE = "https://en.akinator.com";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
-/** Navigation timeout (ms). */
-const NAV_TIMEOUT = 60000;
-/** Max time (ms) to wait for a Cloudflare interstitial to clear after a load. */
-const CF_TIMEOUT = 30000;
+/** Chrome 126 JA3 fingerprint — what gets the requests past Cloudflare. */
+const JA3 =
+  "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0";
 /** Akinator subject id for the Characters theme. */
 const SID = "1";
-/** Resource types aborted to keep the single page load light. */
-const BLOCKED_RESOURCES = new Set(["image", "media", "font"]);
+/** Optional egress proxy (Cloudflare WARP socks5) for a non-datacenter IP. */
+const PROXY = process.env.AKINATOR_PROXY || "";
 
 /**
  * Answer keys mapped to Akinator's numeric answer ids.
  * @type {Record<string, number>}
  */
-const ANSWER_IDS = {
-  yes: 0,
-  no: 1,
-  idk: 2,
-  probably: 3,
-  probably_not: 4,
-};
+const ANSWER_IDS = { yes: 0, no: 1, idk: 2, probably: 3, probably_not: 4 };
 
 /**
  * Decodes HTML entities found in Akinator question and proposition text.
@@ -60,22 +46,17 @@ function decodeEntities(value) {
  * @returns {string|null}
  */
 function pick(text, re) {
-  const m = text.match(re);
+  const m = String(text).match(re);
   return m ? m[1] : null;
 }
 
 /**
- * Drives a single Characters game on en.akinator.com.
- *
- * The stealth browser clears Cloudflare and holds a same-origin, clearance-cookie
- * context; the game is then driven over Akinator's form API via in-page `fetch`,
- * making every turn a single JSON round-trip with no SPA navigation or DOM
- * scraping. Holds no Discord state; one instance per game.
+ * Drives a single Characters game on en.akinator.com over Akinator's form API
+ * using a TLS-impersonating client (CycleTLS), so no browser is needed. Holds
+ * no Discord state; one instance per game.
  */
 export class AkinatorClient {
   constructor() {
-    /** @type {import('puppeteer-core').Page | null} */
-    this.page = null;
     this.session = null;
     this.signature = null;
     this.childMode = false;
@@ -84,125 +65,81 @@ export class AkinatorClient {
     this.stepLastProposition = "";
     this.completion = null;
     this.question = "";
+    /** Per-game cookie jar (cf clearance + load-balancer affinity). */
+    this.cookies = {};
   }
 
   /**
-   * Returns this game's page, creating it on the shared browser on first use
-   * with proxy auth, heavy-resource blocking, and the spoofed user agent.
-   * @returns {Promise<import('puppeteer-core').Page>}
+   * Records cookies from a response's set-cookie header(s) into the jar.
+   * @param {Record<string, any>} headers
+   * @returns {void}
    */
-  async _getPage() {
-    if (this.page && !this.page.isClosed()) return this.page;
-
-    const browser = await getBrowser();
-    const page = await browser.newPage();
-
-    if (process.env.AKINATOR_PROXY_USER && process.env.AKINATOR_PROXY_PASS) {
-      await page.authenticate({
-        username: process.env.AKINATOR_PROXY_USER,
-        password: process.env.AKINATOR_PROXY_PASS,
-      });
+  _storeCookies(headers) {
+    const sc = headers?.["set-cookie"] || headers?.["Set-Cookie"];
+    if (!sc) return;
+    for (const c of Array.isArray(sc) ? sc : [sc]) {
+      const pair = String(c).split(";")[0];
+      const i = pair.indexOf("=");
+      if (i > 0) this.cookies[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
     }
-
-    await page.setUserAgent(UA);
-    await page.setRequestInterception(true);
-    page.on("request", (req) => {
-      const blocked = BLOCKED_RESOURCES.has(req.resourceType());
-      (blocked ? req.abort() : req.continue()).catch(() => {});
-    });
-    page.setDefaultNavigationTimeout(NAV_TIMEOUT);
-
-    this.page = page;
-    return page;
   }
 
   /**
-   * Reports whether a Cloudflare challenge is present on the current page.
-   * @returns {Promise<boolean>}
+   * Serialises the cookie jar into a Cookie header value.
+   * @returns {string}
    */
-  async _detectCloudflare() {
-    try {
-      return await this.page.evaluate(() =>
-        /just a moment|verify you are human|enable javascript and cookies|attention required|cf-chl|challenge-platform/i.test(
-          `${document.title} ${document.body ? document.body.innerText : ""}`,
-        ),
-      );
-    } catch {
-      return false;
-    }
+  _cookieHeader() {
+    return Object.entries(this.cookies).map(([k, v]) => `${k}=${v}`).join("; ");
   }
 
   /**
-   * Loads the game page to obtain a Cloudflare clearance cookie and a same-origin
-   * context for the API fetches, then waits for any interstitial to clear.
-   * @returns {Promise<void>}
-   * @throws {Error} If Cloudflare does not clear within {@link CF_TIMEOUT}.
-   */
-  async _ensureCleared() {
-    const page = await this._getPage();
-    if (!page.url().startsWith(BASE)) {
-      await page.goto(`${BASE}/game`, {
-        waitUntil: "domcontentloaded",
-        timeout: NAV_TIMEOUT,
-      });
-    }
-    const deadline = Date.now() + CF_TIMEOUT;
-    while (Date.now() < deadline) {
-      if (!(await this._detectCloudflare())) return;
-      await new Promise((r) => setTimeout(r, 500));
-    }
-    await this._debugShot("cloudflare");
-    throw new Error("Blocked by Cloudflare challenge (egress IP flagged).");
-  }
-
-  /**
-   * Posts form-encoded parameters to an Akinator endpoint from inside the
-   * cleared page so the clearance cookie and browser TLS fingerprint apply.
+   * Performs one form-encoded POST to an Akinator endpoint with the Chrome JA3
+   * fingerprint, WARP egress (when configured) and the running cookie jar.
    * @param {string} apiPath Endpoint path beginning with "/".
-   * @param {Record<string, string|number>} params Form fields.
-   * @returns {Promise<{status:number, text:string, json:any}>} `json` is null for non-JSON bodies.
+   * @param {string} body Form-encoded body.
+   * @returns {Promise<{status:number, body:any, headers:Record<string,any>}>}
    */
-  async _api(apiPath, params) {
-    const body = new URLSearchParams(params).toString();
-    return this.page.evaluate(
-      async (url, payload) => {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {
-            "content-type": "application/x-www-form-urlencoded",
-            "x-requested-with": "XMLHttpRequest",
-          },
-          body: payload,
-          credentials: "include",
-        });
-        const text = await res.text();
-        let json = null;
-        try {
-          json = JSON.parse(text);
-        } catch {}
-        return { status: res.status, text, json };
-      },
+  async _api(apiPath, body) {
+    const client = await getClient();
+    const cookie = this._cookieHeader();
+    const res = await client(
       `${BASE}${apiPath}`,
-      body,
+      {
+        body,
+        ja3: JA3,
+        ...(PROXY ? { proxy: PROXY } : {}),
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "user-agent": UA,
+          "x-requested-with": "XMLHttpRequest",
+          accept: "application/json, text/javascript, */*; q=0.01",
+          origin: BASE,
+          referer: `${BASE}/game`,
+          ...(cookie ? { cookie } : {}),
+        },
+      },
+      "post",
     );
+    this._storeCookies(res.headers);
+    return res;
   }
 
   /**
    * Interprets a JSON response from /answer, /cancel_answer or /exclude and
-   * advances game state. A guess is signalled by `id_proposition`; `KO - TIMEOUT`
-   * marks an expired session; `SOUNDLIKE` marks a defeat.
-   * @param {{status:number, text:string, json:any}} res
+   * advances game state. CycleTLS auto-parses JSON bodies to objects. A guess is
+   * signalled by `id_proposition`; `KO - TIMEOUT` marks an expired session;
+   * `SOUNDLIKE` marks a defeat.
+   * @param {{status:number, body:any}} res
    * @returns {{type:string, [key:string]: any}}
    * @throws {Error} On a non-JSON body or an expired session.
    */
   _consume(res) {
-    const data = res.json;
+    const data = res.body && typeof res.body === "object" ? res.body : safeJson(res.body);
     if (!data) {
       throw new Error(`Akinator API returned non-JSON (status ${res.status}).`);
     }
 
     this.completion = data.completion ?? this.completion;
-
     if (this.completion === "KO - TIMEOUT") {
       throw new Error("Akinator session timed out.");
     }
@@ -240,10 +177,8 @@ export class AkinatorClient {
    * @throws {Error} If Cloudflare blocks or the session cannot be parsed.
    */
   async startGame() {
-    await this._ensureCleared();
-
-    const res = await this._api("/game", { sid: SID, cm: this.childMode });
-    const text = res.text || "";
+    const res = await this._api("/game", `sid=${SID}&cm=${this.childMode}`);
+    const text = String(res.body || "");
 
     this.session =
       pick(text, /#session'\)\.val\('(.+?)'\)/) || pick(text, /session: '(.+?)'/);
@@ -255,9 +190,8 @@ export class AkinatorClient {
     );
 
     if (!this.session || !this.signature || !question) {
-      await this._debugShot("nostart");
-      if (/just a moment|attention required|cf-chl/i.test(text)) {
-        throw new Error("Blocked by Cloudflare challenge (egress IP flagged).");
+      if (res.status !== 200 || /just a moment|attention required|cf-chl|error code/i.test(text)) {
+        throw new Error(`Blocked by Cloudflare (status ${res.status}).`);
       }
       throw new Error("Could not start Akinator session (unexpected response).");
     }
@@ -283,16 +217,19 @@ export class AkinatorClient {
     if (answerId === undefined) throw new Error(`Invalid answer key: ${key}`);
 
     const fromStep = this.step;
-    const res = await this._api("/answer", {
-      step: this.step,
-      progression: this.progression,
-      sid: SID,
-      cm: this.childMode,
-      answer: answerId,
-      step_last_proposition: this.stepLastProposition,
-      session: this.session,
-      signature: this.signature,
-    });
+    const res = await this._api(
+      "/answer",
+      new URLSearchParams({
+        step: String(this.step),
+        progression: String(this.progression),
+        sid: SID,
+        cm: String(this.childMode),
+        answer: String(answerId),
+        step_last_proposition: this.stepLastProposition,
+        session: this.session,
+        signature: this.signature,
+      }).toString(),
+    );
     const state = this._consume(res);
     auditLog(
       "info",
@@ -309,16 +246,19 @@ export class AkinatorClient {
    */
   async back() {
     if (this.step <= 0) {
-      return { type: "question", question: this.question, step: String(this.step) };
+      return { type: "question", question: this.question, step: String(this.step), progression: this.progression };
     }
-    const res = await this._api("/cancel_answer", {
-      step: this.step,
-      progression: this.progression,
-      sid: SID,
-      cm: this.childMode,
-      session: this.session,
-      signature: this.signature,
-    });
+    const res = await this._api(
+      "/cancel_answer",
+      new URLSearchParams({
+        step: String(this.step),
+        progression: String(this.progression),
+        sid: SID,
+        cm: String(this.childMode),
+        session: this.session,
+        signature: this.signature,
+      }).toString(),
+    );
     const state = this._consume(res);
     auditLog("info", "AKINATOR", `back -> ${state.type} (step ${this.step})`);
     return state;
@@ -336,46 +276,44 @@ export class AkinatorClient {
       auditLog("info", "AKINATOR", "guess accepted -> win");
       return { type: "win" };
     }
-    const res = await this._api("/exclude", {
-      step: this.step + 1,
-      progression: this.progression,
-      sid: SID,
-      cm: this.childMode,
-      session: this.session,
-      signature: this.signature,
-      forward_answer: 1,
-    });
+    const res = await this._api(
+      "/exclude",
+      new URLSearchParams({
+        step: String(this.step + 1),
+        progression: String(this.progression),
+        sid: SID,
+        cm: String(this.childMode),
+        session: this.session,
+        signature: this.signature,
+        forward_answer: "1",
+      }).toString(),
+    );
     const state = this._consume(res);
     auditLog("info", "AKINATOR", `guess declined -> ${state.type} (step ${this.step})`);
     return state;
   }
 
   /**
-   * Saves a diagnostic screenshot to the logs volume. Best-effort.
-   * @param {string} tag Filename suffix.
-   * @returns {Promise<void>}
-   */
-  async _debugShot(tag) {
-    try {
-      await this.page.screenshot({ path: path.join(DEBUG_DIR, `akinator_${tag}.png`) });
-      auditLog(
-        "warn",
-        "AKINATOR",
-        `Saved debug screenshot logs/akinator_${tag}.png (url=${this.page.url()})`,
-      );
-    } catch {}
-  }
-
-  /**
-   * Closes this game's page. The shared browser is left open for idle reuse.
+   * Releases per-game state. The shared TLS client is left running for idle
+   * reuse and closed elsewhere.
    * @returns {Promise<void>}
    */
   async dispose() {
-    if (this.page && !this.page.isClosed()) {
-      try {
-        await this.page.close();
-      } catch {}
-    }
-    this.page = null;
+    this.cookies = {};
+    this.session = null;
+    this.signature = null;
+  }
+}
+
+/**
+ * Parses JSON, returning null on failure.
+ * @param {string} s
+ * @returns {any}
+ */
+function safeJson(s) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
   }
 }

@@ -14,7 +14,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { AkinatorClient } from "./akinatorClient.js";
-import { closeBrowser } from "./browser.js";
+import { closeClient } from "./tlsClient.js";
 import { auditLog } from "../../utils/logger.js";
 import { icon, emojiObj } from "../../utils/icons.js";
 import { akitude, questionAkitude } from "./akitudes.js";
@@ -62,7 +62,7 @@ function sc(text) {
 }
 
 const GAME_IDLE_MS = 3 * 60 * 1000;
-const BROWSER_IDLE_MS = 10 * 60 * 1000;
+const CLIENT_IDLE_MS = 10 * 60 * 1000;
 const BUSY_REPLY_COOLDOWN_MS = 15 * 1000;
 
 const V2 = MessageFlags.IsComponentsV2;
@@ -70,7 +70,7 @@ const V2 = MessageFlags.IsComponentsV2;
 /** @type {import('discord.js').Client | null} */
 let discordClient = null;
 let gameIdleTimer = null;
-let browserIdleTimer = null;
+let clientIdleTimer = null;
 let lastBusyReplyAt = 0;
 
 /**
@@ -530,14 +530,14 @@ export async function initAkinator(client) {
 }
 
 /**
- * (Re)arms the timer that closes the dedicated browser once no game is running.
+ * (Re)arms the timer that closes the shared TLS client once no game is running.
  * @returns {void}
  */
-function armBrowserIdle() {
-  if (browserIdleTimer) clearTimeout(browserIdleTimer);
-  browserIdleTimer = setTimeout(() => {
-    if (!session.active) closeBrowser().catch(() => {});
-  }, BROWSER_IDLE_MS);
+function armClientIdle() {
+  if (clientIdleTimer) clearTimeout(clientIdleTimer);
+  clientIdleTimer = setTimeout(() => {
+    if (!session.active) closeClient().catch(() => {});
+  }, CLIENT_IDLE_MS);
 }
 
 /**
@@ -570,7 +570,7 @@ async function endGame(reason) {
   session.busy = false;
   if (aki) await aki.dispose().catch(() => {});
   auditLog("info", "AKINATOR", `Game ended (${reason}).`);
-  armBrowserIdle();
+  armClientIdle();
 }
 
 /**

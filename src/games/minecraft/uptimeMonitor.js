@@ -58,6 +58,10 @@ const THRESHOLDS = [
   },
 ];
 
+/**
+ * Ensures the cache directory exists, creating it recursively if needed.
+ * @returns {void}
+ */
 function ensureCacheDir() {
   const dir = path.dirname(CACHE_PATH);
   if (!fs.existsSync(dir)) {
@@ -65,6 +69,10 @@ function ensureCacheDir() {
   }
 }
 
+/**
+ * Reads the persisted uptime cache, returning defaults when missing or unreadable.
+ * @returns {{lastChecked:number, scrapedMins:number, syncs:object, alerts:object}}
+ */
 function readCache() {
   try {
     if (fs.existsSync(CACHE_PATH)) {
@@ -76,6 +84,11 @@ function readCache() {
   return { lastChecked: 0, scrapedMins: 0, syncs: {}, alerts: {} };
 }
 
+/**
+ * Persists the uptime cache to disk.
+ * @param {object} data Cache object to serialise.
+ * @returns {void}
+ */
 function writeCache(data) {
   try {
     ensureCacheDir();
@@ -85,6 +98,11 @@ function writeCache(data) {
   }
 }
 
+/**
+ * Parses an "HH:MM:SS" string into a total number of minutes.
+ * @param {string} timeStr
+ * @returns {number|null} Total minutes, or null if the input is malformed.
+ */
 function parseTimeToMinutes(timeStr) {
   if (!timeStr) return null;
   const parts = timeStr.split(":").map(Number);
@@ -92,6 +110,11 @@ function parseTimeToMinutes(timeStr) {
   return parts[0] * 60 + parts[1] + parts[2] / 60;
 }
 
+/**
+ * Formats a minute count back into an "HH:MM:SS" string (clamped at zero).
+ * @param {number} mins
+ * @returns {string}
+ */
 function formatMinutesToStr(mins) {
   if (mins <= 0) return "00:00:00";
   const h = Math.floor(mins / 60);
@@ -100,6 +123,14 @@ function formatMinutesToStr(mins) {
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
 
+/**
+ * DMs every moderator (resolved by role) a renewal-reminder card for the given
+ * threshold, with a link button to the server panel.
+ * @param {import('discord.js').Client} client
+ * @param {{name:string, mins:number, color:string, title:string}} threshold
+ * @param {number} estimatedMins Estimated minutes of uptime remaining.
+ * @returns {Promise<void>}
+ */
 async function sendAlert(client, threshold, estimatedMins) {
   const roleId = process.env.FGH_MOD_ROLE_ID;
   const serverUrl = process.env.FGH_SERVER_URL;
@@ -147,10 +178,15 @@ async function sendAlert(client, threshold, estimatedMins) {
   );
 }
 
-async function syncWithPuppeteer(cache) {
-  console.log(
-    "[UptimeMonitor] 🚀 Launching Puppeteer to sync true server time...",
-  );
+/**
+ * Fetches the true remaining uptime from the FreeGameHost API and updates the
+ * cache, resetting per-threshold sync/alert state when a manual renewal is
+ * detected (a jump of more than an hour).
+ * @param {object} cache
+ * @returns {Promise<{cache:object, success:boolean}>}
+ */
+async function syncServerTime(cache) {
+  console.log("[UptimeMonitor] 🔄 Syncing true server time via FreeGameHost API...");
   const timeStr = await scrapeUptime();
 
   if (!timeStr) {
@@ -176,6 +212,13 @@ async function syncWithPuppeteer(cache) {
   return { cache, success: true };
 }
 
+/**
+ * One monitor tick: estimates remaining uptime from the time-decaying cache,
+ * re-syncs with the API when stale or nearing a threshold, and fires each
+ * moderator alert once as the deadline approaches.
+ * @param {import('discord.js').Client} client
+ * @returns {Promise<void>}
+ */
 async function checkTick(client) {
   let cache = readCache();
 
@@ -183,7 +226,7 @@ async function checkTick(client) {
   let estimatedMins = cache.scrapedMins - minutesSinceLastCheck;
 
   if (!cache.lastChecked || estimatedMins < -100 || minutesSinceLastCheck > 60) {
-    const result = await syncWithPuppeteer(cache);
+    const result = await syncServerTime(cache);
     cache = result.cache;
     writeCache(cache);
     return;
@@ -198,7 +241,7 @@ async function checkTick(client) {
         `[UptimeMonitor] Estimated time (~${Math.floor(estimatedMins)}m) is approaching the ${t.name} threshold.`,
       );
 
-      const result = await syncWithPuppeteer(cache);
+      const result = await syncServerTime(cache);
       cache = result.cache;
 
       if (result.success) {

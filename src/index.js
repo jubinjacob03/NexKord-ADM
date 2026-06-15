@@ -21,7 +21,7 @@ import {
   handleAkinatorMessage,
   handleAkinatorButton,
 } from "./games/akinator/game.js";
-import { closeBrowser } from "./games/akinator/browser.js";
+import { closeClient } from "./games/akinator/tlsClient.js";
 import { initIcons } from "./utils/icons.js";
 
 dotenv.config();
@@ -143,7 +143,7 @@ client.login(process.env.DISCORD_TOKEN);
  */
 const shutdown = async () => {
   console.log("[NexKord - ADM] Shutting down gracefully...");
-  await closeBrowser().catch(() => {});
+  await closeClient().catch(() => {});
   stopEventServer();
   client.destroy();
   process.exit(0);

@@ -15,8 +15,6 @@ services:
       - 8.8.8.8
     volumes:
       - ./logs:/usr/src/app/logs
-      - ./data/browser_profile:/usr/src/app/data/browser_profile
-      - ./data/akinator_profile:/usr/src/app/data/akinator_profile
     logging:
       driver: "json-file"
       options:

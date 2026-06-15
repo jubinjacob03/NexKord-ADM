@@ -8,15 +8,10 @@ RUN npm install --omit=dev
 FROM node:20-alpine
 
 RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
     ca-certificates \
-    ttf-freefont
+    gcompat \
+    libstdc++
 
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV NODE_ENV=production
 ENV NODE_OPTIONS="--max-old-space-size=256 --expose-gc"
 

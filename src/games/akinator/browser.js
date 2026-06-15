@@ -35,6 +35,17 @@ const LAUNCH_ARGS = [
   "--disable-background-networking",
   "--window-size=1280,900",
   "--dns-prefetch-disable",
+  "--renderer-process-limit=1",
+  "--js-flags=--max-old-space-size=192",
+  "--blink-settings=imagesEnabled=false",
+  "--disable-software-rasterizer",
+  "--disable-default-apps",
+  "--disable-sync",
+  "--no-default-browser-check",
+  "--disable-features=site-per-process,Translate,BackForwardCache,MediaRouter,OptimizationHints",
+  "--disable-background-timer-throttling",
+  "--disable-backgrounding-occluded-windows",
+  "--disable-renderer-backgrounding",
   ...(process.env.AKINATOR_PROXY
     ? [`--proxy-server=${process.env.AKINATOR_PROXY}`]
     : []),

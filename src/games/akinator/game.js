@@ -62,7 +62,7 @@ function sc(text) {
 }
 
 const GAME_IDLE_MS = 3 * 60 * 1000;
-const BROWSER_IDLE_MS = 5 * 60 * 1000;
+const BROWSER_IDLE_MS = 10 * 60 * 1000;
 const BUSY_REPLY_COOLDOWN_MS = 15 * 1000;
 
 const V2 = MessageFlags.IsComponentsV2;
@@ -306,7 +306,7 @@ function header(title, body = "", titleIcon = null) {
  * @returns {Promise<import('discord.js').Message|null>}
  */
 async function sendTracked(channel, built) {
-  await retireLastMessage();
+  retireLastMessage();
   const msg = await channel
     .send({ components: built.components, files: built.files, flags: V2 })
     .catch(() => null);
@@ -330,53 +330,20 @@ async function sendPlain(channel, built) {
 }
 
 /**
- * Strips the buttons from the currently tracked message, leaving its card intact.
- * @returns {Promise<void>}
+ * Retires the currently tracked message: clears tracking synchronously, then
+ * fires a button-less edit without awaiting. Used as instant zero-upload
+ * feedback (the buttons vanish the moment an action is taken) that overlaps the
+ * browser round-trip, and to neutralise superseded cards.
+ * @returns {void}
  */
-async function retireLastMessage() {
-  if (session.lastMsg && session.lastRetired) {
-    await session.lastMsg
-      .edit({ components: session.lastRetired, flags: V2 })
-      .catch(() => {});
-  }
-  session.lastMsg = null;
-  session.lastRetired = null;
-}
-
-/**
- * Immediately edits the tracked message into a button-less "reading your mind"
- * card. This acknowledges the player's action the instant it arrives — masking
- * the proxy round-trip latency and preventing double submissions while the slow
- * browser step runs. The next state replaces this card when ready.
- * @returns {Promise<void>}
- */
-async function markThinking() {
+function retireLastMessage() {
   const msg = session.lastMsg;
+  const retired = session.lastRetired;
   session.lastMsg = null;
   session.lastRetired = null;
-  if (!msg) return;
-  const pose = akitude("mindreading");
-  await msg
-    .edit({
-      components: [
-        brandFooter(
-          new ContainerBuilder()
-            .setAccentColor(ACCENT)
-            .addSectionComponents(
-              new SectionBuilder()
-                .addTextDisplayComponents(
-                  new TextDisplayBuilder().setContent(
-                    header("Reading your mind…", "", "PENDING"),
-                  ),
-                )
-                .setThumbnailAccessory(new ThumbnailBuilder().setURL(pose.url)),
-            ),
-        ),
-      ],
-      files: [pose.attachment],
-      flags: V2,
-    })
-    .catch(() => {});
+  if (msg && retired) {
+    msg.edit({ components: retired, flags: V2 }).catch(() => {});
+  }
 }
 
 /**
@@ -416,9 +383,9 @@ export async function initAkinator(client) {
   const channelId = process.env.AKINATOR_CHANNEL_ID;
   if (!channelId) {
     auditLog("warn", "AKINATOR", "AKINATOR_CHANNEL_ID not set — module idle.");
-  } else {
-    auditLog("info", "AKINATOR", `Module ready on channel ${channelId}.`);
+    return;
   }
+  auditLog("info", "AKINATOR", `Module ready on channel ${channelId}.`);
 }
 
 /**
@@ -452,7 +419,7 @@ async function endGame(reason) {
     gameIdleTimer = null;
   }
   const aki = session.aki;
-  await retireLastMessage();
+  retireLastMessage();
   session.active = false;
   session.phase = null;
   session.playerId = null;
@@ -770,7 +737,7 @@ async function submitAnswer(key, channel) {
   if (session.busy || session.phase !== "question") return;
   session.busy = true;
   try {
-    await markThinking();
+    retireLastMessage();
     const state = await session.aki.answer(key);
     await postState(state, channel);
   } catch (err) {
@@ -802,7 +769,7 @@ async function doBack(channel) {
   if (session.busy || session.phase !== "question") return;
   session.busy = true;
   try {
-    await markThinking();
+    retireLastMessage();
     const state = await session.aki.back();
     await postState(state, channel);
   } catch (err) {
@@ -843,7 +810,7 @@ async function resolveGuess(accept, channel) {
   if (session.busy || session.phase !== "guess") return;
   session.busy = true;
   try {
-    await markThinking();
+    retireLastMessage();
     if (accept) {
       await session.aki.confirmGuess(true);
       const built = buildMessage({

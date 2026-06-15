@@ -12,6 +12,13 @@ const BASE = "https://en.akinator.com";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
+/** Navigation timeout (ms); generous because the egress proxy adds latency. */
+const NAV_TIMEOUT = 60000;
+/** Per-state timeout (ms) for a question/guess to render after an action. */
+const STATE_TIMEOUT = 25000;
+/** Resources never needed for gameplay — blocked to minimise proxy round-trips. */
+const BLOCKED_RESOURCES = new Set(["image", "media", "font"]);
+
 /**
  * Canonical answer keys mapped to their on-page anchor IDs.
  * `probably_not` intentionally targets `a_probaly_not` to match a misspelling
@@ -37,15 +44,12 @@ const THEME_LABELS = {
 };
 
 /**
- * Resolves after the given delay.
- * @param {number} ms
- * @returns {Promise<void>}
- */
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-/**
  * Drives a single Akinator game on en.akinator.com through one browser page.
  * Holds no Discord state; one instance is created per game.
+ *
+ * Latency model: every action (click an answer, go back, decline a guess) is
+ * followed by a single render-precise wait that resolves the instant the next
+ * question text changes or a guess appears — no fixed delays — then one DOM read.
  */
 export class AkinatorClient {
   constructor() {
@@ -55,77 +59,34 @@ export class AkinatorClient {
 
   /**
    * Returns this game's page, creating it on the shared dedicated browser on
-   * first use and reusing it thereafter.
+   * first use and reusing it thereafter. Blocks heavy resources and wires proxy
+   * auth so navigations are as light as possible.
    * @returns {Promise<import('puppeteer-core').Page>}
    */
   async _getPage() {
     if (this.page && !this.page.isClosed()) return this.page;
+
     const browser = await getBrowser();
-    this.page = await browser.newPage();
+    const page = await browser.newPage();
+
     if (process.env.AKINATOR_PROXY_USER && process.env.AKINATOR_PROXY_PASS) {
-      await this.page.authenticate({
+      await page.authenticate({
         username: process.env.AKINATOR_PROXY_USER,
         password: process.env.AKINATOR_PROXY_PASS,
       });
     }
-    await this.page.setUserAgent(UA);
-    await this.page.setRequestInterception(true);
-    this.page.on("request", (req) => {
-      const type = req.resourceType();
-      if (type === "image" || type === "media" || type === "font") {
-        req.abort().catch(() => {});
-      } else {
-        req.continue().catch(() => {});
-      }
-    });
-    this.page.setDefaultNavigationTimeout(90000);
-    this.page.setDefaultTimeout(90000);
-    return this.page;
-  }
 
-  /**
-   * Dismisses a cookie-consent dialog across the main document and every frame.
-   * With the persistent profile this only fires on the first launch.
-   * @returns {Promise<void>}
-   */
-  async _dismissConsent() {
-    const re =
-      "accept|agree|consent|got it|i understand|continue|j'accepte|tout accepter";
-    for (const frame of this.page.frames()) {
-      try {
-        const handle = await frame.evaluateHandle((src) => {
-          const r = new RegExp(src, "i");
-          const els = [
-            ...document.querySelectorAll('button,a,[role="button"],span,div'),
-          ];
-          return (
-            els.find(
-              (e) =>
-                r.test((e.innerText || "").trim()) &&
-                (e.innerText || "").trim().length < 40,
-            ) || null
-          );
-        }, re);
-        const el = handle.asElement();
-        if (el) {
-          await el.click().catch(() => {});
-          await sleep(800);
-        }
-      } catch {
-        continue;
-      }
-    }
-  }
-
-  /**
-   * Reads the current step counter.
-   * @returns {Promise<string|null>}
-   */
-  async _stepNum() {
-    return this.page.evaluate(() => {
-      const s = document.querySelector("#step-info");
-      return s ? (s.innerText || "").trim() : null;
+    await page.setUserAgent(UA);
+    await page.setRequestInterception(true);
+    page.on("request", (req) => {
+      const blocked = BLOCKED_RESOURCES.has(req.resourceType());
+      (blocked ? req.abort() : req.continue()).catch(() => {});
     });
+    page.setDefaultNavigationTimeout(NAV_TIMEOUT);
+    page.setDefaultTimeout(STATE_TIMEOUT);
+
+    this.page = page;
+    return page;
   }
 
   /**
@@ -136,7 +97,7 @@ export class AkinatorClient {
    */
   async _readState() {
     return this.page.evaluate(() => {
-      const isVisible = (el) => {
+      const visible = (el) => {
         if (!el) return false;
         const r = el.getBoundingClientRect();
         const s = getComputedStyle(el);
@@ -147,129 +108,97 @@ export class AkinatorClient {
           s.display !== "none"
         );
       };
+      const text = (el) => (el ? (el.innerText || "").trim() : "");
 
       const nameEl = document.querySelector("#name_proposition");
-      if (isVisible(nameEl) && (nameEl.innerText || "").trim().length > 0) {
-        const descEl = document.querySelector("#description_proposition");
-        const stepEl = document.querySelector("#step-info");
+      if (visible(nameEl) && text(nameEl)) {
         return {
           type: "guess",
-          name: (nameEl.innerText || "").trim(),
-          description: descEl ? (descEl.innerText || "").trim() : "",
-          step: stepEl ? (stepEl.innerText || "").trim() : null,
+          name: text(nameEl),
+          description: text(document.querySelector("#description_proposition")),
+          step: text(document.querySelector("#step-info")) || null,
         };
       }
 
-      const bodyTxt = (document.body.innerText || "").replace(/\s+/g, " ");
-      if (
-        /you (have )?(beaten|defeated|won)|bravo|well played|i (give up|surrender)|you win/i.test(
-          bodyTxt,
-        ) &&
-        !document.querySelector("#question-label")
-      ) {
-        return { type: "defeat" };
+      const qEl = document.querySelector("#question-label");
+      if (!qEl) {
+        const body = (document.body.innerText || "").replace(/\s+/g, " ");
+        if (
+          /you (have )?(beaten|defeated|won)|bravo|well played|i (give up|surrender)|you win/i.test(
+            body,
+          )
+        ) {
+          return { type: "defeat" };
+        }
       }
 
-      const qEl = document.querySelector("#question-label");
-      const stepEl = document.querySelector("#step-info");
-      const progEl = document.querySelector("#progressBar");
-      let progress = null;
-      if (progEl) {
-        const w = progEl.querySelector("[style*='width']");
-        progress = w ? w.style.width : null;
-      }
       return {
         type: "question",
-        question: qEl
-          ? (qEl.textContent || "").replace(/\s+/g, " ").trim()
-          : null,
-        step: stepEl ? (stepEl.innerText || "").trim() : null,
-        progress,
+        question: qEl ? (qEl.textContent || "").replace(/\s+/g, " ").trim() : null,
+        step: text(document.querySelector("#step-info")) || null,
       };
     });
   }
 
   /**
-   * Waits until the game moves past the previous step: the step counter changes,
-   * a guess appears, or a defeat screen shows. Returns early on timeout.
-   * @param {string|null} prevStep
+   * Resolves the instant the next state is on screen: the question text differs
+   * from `prevQuestion`, a guess proposal becomes visible, or a defeat screen
+   * appears. Render-precise (animation-frame polling), so no fixed settle delay
+   * is needed. Returns early on timeout; the caller's read reflects whatever is
+   * present.
+   * @param {string} prevQuestion The question text shown before the action.
    * @returns {Promise<void>}
    */
-  async _waitForAdvance(prevStep) {
+  async _awaitNextState(prevQuestion) {
     try {
       await this.page.waitForFunction(
         (prev) => {
-          const step = document.querySelector("#step-info")?.innerText?.trim();
           const name = document.querySelector("#name_proposition");
-          const guessing =
-            name &&
-            name.offsetParent !== null &&
-            (name.innerText || "").trim().length > 0;
-          return guessing || (!!step && step !== prev);
-        },
-        { timeout: 25000 },
-        prevStep,
-      );
-    } catch {
-      void 0;
-    }
-    await sleep(300);
-  }
-
-  /**
-   * Waits until a question is fully rendered (non-empty `#question-label`) or a
-   * guess proposal is visible. Used after navigation, where there is no prior
-   * step to diff against. Returns early on timeout.
-   * @param {number} [timeout=20000]
-   * @returns {Promise<void>}
-   */
-  async _waitForRenderedState(timeout = 30000) {
-    try {
-      await this.page.waitForFunction(
-        () => {
+          if (name && name.offsetParent !== null && (name.innerText || "").trim()) {
+            return true;
+          }
           const q = document.querySelector("#question-label");
-          const hasQ = q && (q.textContent || "").trim().length > 0;
-          const name = document.querySelector("#name_proposition");
-          const guessing =
-            name &&
-            name.offsetParent !== null &&
-            (name.innerText || "").trim().length > 0;
-          return hasQ || guessing;
+          if (!q) {
+            const body = document.body.innerText || "";
+            return /you (have )?(beaten|defeated|won)|bravo|well played|give up|you win/i.test(
+              body,
+            );
+          }
+          const qt = (q.textContent || "").trim();
+          return qt.length > 0 && qt !== prev;
         },
-        { timeout },
+        { timeout: STATE_TIMEOUT, polling: "raf" },
+        prevQuestion ?? "",
       );
-    } catch {
-      void 0;
-    }
-    await sleep(400);
+    } catch {}
   }
 
   /**
-   * Waits until the page URL contains the given fragment. Returns early on timeout.
-   * @param {string} fragment
-   * @param {number} [timeout=15000]
+   * Waits until an element is gone or hidden. Used to confirm a click registered.
+   * @param {string} selector
+   * @param {number} timeout
    * @returns {Promise<void>}
    */
-  async _waitUrl(fragment, timeout = 15000) {
+  async _awaitGone(selector, timeout) {
     try {
       await this.page.waitForFunction(
-        (frag) => location.href.includes(frag),
-        { timeout },
-        fragment,
+        (sel) => {
+          const el = document.querySelector(sel);
+          return !el || el.offsetParent === null || !(el.innerText || "").trim();
+        },
+        { timeout, polling: "raf" },
+        selector,
       );
-    } catch {
-      void 0;
-    }
+    } catch {}
   }
 
   /**
-   * Waits for a selector to appear and be visible. Returns false on timeout
-   * rather than throwing.
+   * Waits for a selector to become visible. Returns false on timeout.
    * @param {string} selector
-   * @param {number} [timeout=20000]
+   * @param {number} timeout
    * @returns {Promise<boolean>}
    */
-  async _waitForSelector(selector, timeout = 20000) {
+  async _awaitSelector(selector, timeout) {
     try {
       await this.page.waitForSelector(selector, { timeout, visible: true });
       return true;
@@ -279,16 +208,41 @@ export class AkinatorClient {
   }
 
   /**
+   * Dismisses a cookie-consent dialog if one is present, across the main
+   * document and any CMP iframe. With the persistent profile this is a fast
+   * no-op after the first launch.
+   * @returns {Promise<void>}
+   */
+  async _dismissConsent() {
+    for (const frame of this.page.frames()) {
+      try {
+        const clicked = await frame.evaluate(() => {
+          const re =
+            /^(accept|agree|i agree|consent|got it|i understand|continue|accept all|tout accepter|j'accepte)$/i;
+          const el = [
+            ...document.querySelectorAll('button,a,[role="button"],span'),
+          ].find((e) => re.test((e.innerText || "").trim()));
+          if (el) {
+            el.click();
+            return true;
+          }
+          return false;
+        });
+        if (clicked) return;
+      } catch {}
+    }
+  }
+
+  /**
    * Detects a Cloudflare interstitial / bot challenge on the current page.
    * @returns {Promise<boolean>}
    */
   async _detectCloudflare() {
-    return this.page.evaluate(() => {
-      const t = `${document.title} ${document.body ? document.body.innerText : ""}`;
-      return /just a moment|verify you are human|enable javascript and cookies|attention required|cf-chl|challenge-platform/i.test(
-        t,
-      );
-    });
+    return this.page.evaluate(() =>
+      /just a moment|verify you are human|enable javascript and cookies|attention required|cf-chl|challenge-platform/i.test(
+        `${document.title} ${document.body ? document.body.innerText : ""}`,
+      ),
+    );
   }
 
   /**
@@ -298,38 +252,13 @@ export class AkinatorClient {
    */
   async _debugShot(tag) {
     try {
-      const file = path.join(DEBUG_DIR, `akinator_${tag}.png`);
-      await this.page.screenshot({ path: file });
+      await this.page.screenshot({ path: path.join(DEBUG_DIR, `akinator_${tag}.png`) });
       auditLog(
         "warn",
         "AKINATOR",
         `Saved debug screenshot logs/akinator_${tag}.png (url=${this.page.url()})`,
       );
-    } catch {
-      void 0;
-    }
-  }
-
-  /**
-   * Clicks a theme tile by its visible label.
-   * @param {string} label
-   * @returns {Promise<boolean>} Whether a matching tile was found and clicked.
-   */
-  async _clickTheme(label) {
-    try {
-      return await this.page.evaluate((lab) => {
-        const li = [...document.querySelectorAll("li.li-game, li")].find(
-          (e) => (e.innerText || "").trim().toLowerCase() === lab.toLowerCase(),
-        );
-        if (li) {
-          li.click();
-          return true;
-        }
-        return false;
-      }, label);
-    } catch {
-      return false;
-    }
+    } catch {}
   }
 
   /**
@@ -355,9 +284,23 @@ export class AkinatorClient {
           }
         }
       });
-    } catch {
-      void 0;
-    }
+    } catch {}
+  }
+
+  /**
+   * Clicks a theme tile by its visible label.
+   * @param {string} label
+   * @returns {Promise<void>}
+   */
+  async _clickTheme(label) {
+    try {
+      await this.page.evaluate((lab) => {
+        const li = [...document.querySelectorAll("li.li-game, li")].find(
+          (e) => (e.innerText || "").trim().toLowerCase() === lab.toLowerCase(),
+        );
+        if (li) li.click();
+      }, label);
+    } catch {}
   }
 
   /**
@@ -374,21 +317,18 @@ export class AkinatorClient {
     const label = THEME_LABELS[theme] || THEME_LABELS.characters;
     const page = await this._getPage();
 
-    await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 90000 });
+    await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT });
     await this._dismissConsent();
 
     let ready = false;
     for (let attempt = 0; attempt < 8 && !ready; attempt++) {
       await this._clickPlay();
-      ready = await this._waitForSelector("li.li-game", 8000);
+      ready = await this._awaitSelector("li.li-game", 6000);
     }
-
     if (!ready) {
       if (await this._detectCloudflare()) {
         await this._debugShot("cloudflare");
-        throw new Error(
-          "Blocked by Cloudflare challenge (egress IP flagged).",
-        );
+        throw new Error("Blocked by Cloudflare challenge (egress IP flagged).");
       }
       await this._debugShot("notiles");
       throw new Error("Akinator theme tiles never appeared.");
@@ -397,23 +337,22 @@ export class AkinatorClient {
     let entered = false;
     for (let attempt = 0; attempt < 6 && !entered; attempt++) {
       await this._clickTheme(label);
-      entered = await this.page
+      entered = await page
         .waitForFunction(
           () =>
             location.href.includes("/game") ||
             !!document.querySelector("#question-label"),
-          { timeout: 5000 },
+          { timeout: 5000, polling: "raf" },
         )
         .then(() => true)
         .catch(() => false);
-      if (!entered) await sleep(1200);
     }
     if (!entered) {
       await this._debugShot("noenter");
       throw new Error("Theme selected but the game did not start.");
     }
 
-    await this._waitForRenderedState();
+    await this._awaitNextState("");
     const state = await this._readState();
     if (state.type === "question" && !state.question) {
       await this._debugShot("noquestion");
@@ -423,7 +362,8 @@ export class AkinatorClient {
   }
 
   /**
-   * Submits an answer and returns the resulting state.
+   * Submits an answer and returns the resulting state. Captures the current
+   * question and clicks in a single round-trip, then waits render-precisely.
    * @param {"yes"|"no"|"idk"|"probably"|"probably_not"} key
    * @returns {Promise<{type:string, [key:string]: any}>}
    * @throws {Error} If the answer key is not recognized.
@@ -432,13 +372,13 @@ export class AkinatorClient {
     const id = ANSWER_IDS[key];
     if (!id) throw new Error(`Invalid answer key: ${key}`);
     const page = await this._getPage();
-    const before = await this._stepNum();
-    await page.evaluate((anchorId) => {
-      const a = document.querySelector(`#${anchorId}`);
-      if (a) a.click();
+    const prevQuestion = await page.evaluate((anchorId) => {
+      const q = document.querySelector("#question-label");
+      const prev = q ? (q.textContent || "").trim() : "";
+      document.querySelector(`#${anchorId}`)?.click();
+      return prev;
     }, id);
-    await this._waitForAdvance(before);
-    await this._waitForRenderedState();
+    await this._awaitNextState(prevQuestion);
     return this._readState();
   }
 
@@ -449,18 +389,17 @@ export class AkinatorClient {
    */
   async back() {
     const page = await this._getPage();
-    const did = await page.evaluate(() => {
+    const { did, prevQuestion } = await page.evaluate(() => {
       const a = document.querySelector("#a_cancel_answer");
-      if (!a) return false;
       const disabled =
-        a.className.includes("disabled") || a.style.pointerEvents === "none";
-      if (disabled) return false;
+        !a || a.className.includes("disabled") || a.style.pointerEvents === "none";
+      if (disabled) return { did: false, prevQuestion: "" };
+      const q = document.querySelector("#question-label");
+      const prev = q ? (q.textContent || "").trim() : "";
       a.click();
-      return true;
+      return { did: true, prevQuestion: prev };
     });
-    if (did) {
-      await this._waitForRenderedState();
-    }
+    if (did) await this._awaitNextState(prevQuestion);
     return this._readState();
   }
 
@@ -472,17 +411,17 @@ export class AkinatorClient {
    */
   async confirmGuess(accept) {
     const page = await this._getPage();
-    await page.evaluate((acc) => {
-      const a = document.querySelector(
-        acc ? "#a_propose_yes" : "#a_propose_no",
-      );
-      if (a) a.click();
+    const prevQuestion = await page.evaluate((acc) => {
+      const q = document.querySelector("#question-label");
+      const prev = q ? (q.textContent || "").trim() : "";
+      document.querySelector(acc ? "#a_propose_yes" : "#a_propose_no")?.click();
+      return prev;
     }, accept);
     if (accept) {
-      await sleep(800);
+      await this._awaitGone("#name_proposition", 4000);
       return { type: "win" };
     }
-    await this._waitForRenderedState();
+    await this._awaitNextState(prevQuestion);
     return this._readState();
   }
 
@@ -494,9 +433,7 @@ export class AkinatorClient {
     if (this.page && !this.page.isClosed()) {
       try {
         await this.page.close();
-      } catch {
-        void 0;
-      }
+      } catch {}
     }
     this.page = null;
   }

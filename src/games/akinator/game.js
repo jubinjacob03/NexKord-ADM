@@ -61,9 +61,14 @@ function sc(text) {
   return String(text).replace(/[a-z]/g, (ch) => SMALL_CAPS[ch] || ch);
 }
 
-const GAME_IDLE_MS = 3 * 60 * 1000;
+/**
+ * Ends a game after this much player inactivity. Kept well under Akinator's own
+ * session timeout (measured to survive >5 min) so a returning player never hits
+ * a server-side timeout, and short enough that an abandoned game doesn't keep
+ * the channel locked to one player for long.
+ */
+const GAME_IDLE_MS = 2 * 60 * 1000;
 const CLIENT_IDLE_MS = 10 * 60 * 1000;
-const BUSY_REPLY_COOLDOWN_MS = 15 * 1000;
 
 const V2 = MessageFlags.IsComponentsV2;
 
@@ -71,7 +76,6 @@ const V2 = MessageFlags.IsComponentsV2;
 let discordClient = null;
 let gameIdleTimer = null;
 let clientIdleTimer = null;
-let lastBusyReplyAt = 0;
 
 /**
  * The single global game session. Exactly one game runs at a time; any other
@@ -550,7 +554,7 @@ function touch() {
 
 /**
  * Ends the current game, retires any live buttons, clears session state, and
- * schedules the browser to close on idle.
+ * schedules the TLS client to close on idle.
  * @param {string} reason
  * @returns {Promise<void>}
  */
@@ -597,7 +601,10 @@ function sweepIdle() {
 
 /**
  * messageCreate handler for the Akinator channel. Starts a game on the first
- * message, routes the active player's input, and asks other members to wait.
+ * messageCreate handler for the Akinator channel. Starts a game on the first
+ * message, routes the active player's input, and silently ignores every other
+ * member's input until the game ends — a bot-side lock only, with no message
+ * deletion or channel-permission changes.
  * @param {import('discord.js').Message} message
  * @returns {Promise<void>}
  */
@@ -618,29 +625,6 @@ export async function handleAkinatorMessage(message) {
     }
 
     if (message.author.id !== session.playerId) {
-      const now = Date.now();
-      if (now - lastBusyReplyAt > BUSY_REPLY_COOLDOWN_MS) {
-        lastBusyReplyAt = now;
-        await message
-          .reply({
-            components: [
-              brandFooter(
-                new ContainerBuilder()
-                  .setAccentColor(ACCENT)
-                  .addTextDisplayComponents(
-                    new TextDisplayBuilder().setContent(
-                      header(
-                        "The genie is busy",
-                        `A game with ${session.playerTag} is already in progress — please wait your turn!`,
-                      ),
-                    ),
-                  ),
-              ),
-            ],
-            flags: V2,
-          })
-          .catch(() => {});
-      }
       return;
     }
 
@@ -694,11 +678,7 @@ export async function handleAkinatorButton(interaction) {
       return true;
     }
     if (interaction.user.id !== session.playerId) {
-      await replyNotice(
-        interaction,
-        "Not your game",
-        `This is ${session.playerTag}'s game — start your own when it's free!`,
-      );
+      await interaction.deferUpdate().catch(() => {});
       return true;
     }
 
@@ -753,7 +733,7 @@ async function replyNotice(interaction, title, body) {
 /**
  * Opens a new session for the given user and starts a Characters game straight
  * away (the only supported theme). Posts a transient "summoning" card while the
- * browser clears Cloudflare and fetches the first question, then replaces it
+ * TLS client clears Cloudflare and fetches the first question, then replaces it
  * with the question card.
  * @param {import('discord.js').User} user
  * @param {string} displayName The player's server nickname (or username fallback).

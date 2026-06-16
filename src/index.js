@@ -136,9 +136,9 @@ process.on("uncaughtException", (err) => {
 client.login(process.env.DISCORD_TOKEN);
 
 /**
- * Handles graceful shutdown of the NexKord-ADM client. Closes the Akinator
- * browser cleanly (releasing its profile lock), stops the event server,
- * destroys the client, and exits.
+ * Handles graceful shutdown of the NexKord-ADM client: closes the shared
+ * Akinator TLS client, stops the event server, destroys the Discord client,
+ * and exits.
  * @returns {Promise<void>}
  */
 const shutdown = async () => {

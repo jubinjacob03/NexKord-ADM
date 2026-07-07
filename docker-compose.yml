@@ -13,6 +13,8 @@ services:
     dns:
       - 1.1.1.1
       - 8.8.8.8
+    environment:
+      - NODE_OPTIONS=--max-old-space-size=1024
     volumes:
       - ./logs:/usr/src/app/logs
     logging:
@@ -23,10 +25,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: 1536M
           cpus: '0.9'
         reservations:
-          memory: 256M
+          memory: 512M
           cpus: '0.2'
 
   # Cloudflare WARP egress for the Akinator browser. Akinator's Cloudflare

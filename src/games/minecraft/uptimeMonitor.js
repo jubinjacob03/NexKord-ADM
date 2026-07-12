@@ -263,6 +263,13 @@ async function checkTick(client) {
   for (const t of sortedThresholds) {
     if (estimatedMins <= t.mins) {
       if (!cache.alerts[t.name]) {
+        const verify = await syncServerTime(cache);
+        if (verify.success) {
+          cache = verify.cache;
+          estimatedMins = cache.scrapedMins;
+          writeCache(cache);
+          if (estimatedMins > t.mins) continue;
+        }
         await sendAlert(client, t, estimatedMins);
 
         for (const upper of THRESHOLDS) {

@@ -1,20 +1,6 @@
 import { Client, Events, GatewayIntentBits, ActivityType } from "discord.js";
 import dotenv from "dotenv";
 import { initBotLogger } from "./utils/logger.js";
-import {
-  postMinecraftDashboard,
-  handleMinecraftInteraction,
-  updateDashboardWithStats,
-  updateDashboardWithConsole,
-} from "./games/minecraft/dashboard.js";
-import {
-  postAmongUsDashboard,
-} from "./games/amongus/dashboard.js";
-import { handleAmongUsInteraction } from "./games/amongus/controller.js";
-import { initVoiceManager, handleVoiceStateUpdate } from "./games/amongus/voiceManager.js";
-import { startEventServer, stopEventServer } from "./games/amongus/eventServer.js";
-import { connectWebSocket } from "./games/minecraft/pterodactyl.js";
-import { initUptimeMonitor } from "./games/minecraft/uptimeMonitor.js";
 import { handleSlashCommand } from "./commands.js";
 import {
   initAkinator,
@@ -27,20 +13,12 @@ import { initIcons } from "./utils/icons.js";
 dotenv.config();
 
 const idlePhrases = [
-  "🟢 holding the uptime",
-  "🧊 cooling the CPU",
-  "⛏️ deep in the mines",
-  "☕ brewing potions",
-  "🧱 stacking blocks",
-  "🌙 surviving the night",
-  "🔥 keeping the TPS high",
-  "🌌 floating in the void",
-  "💣 planting the bomb",
-  "💫 surviving the red zone",
-  "🎒 looting the airdrop",
-  "🛠️ faking tasks",
-  "🔌 fixing wiring",
-  "🍀 checking the cams",
+  "online",
+  "cooling the CPU",
+  "brewing potions",
+  "floating in the void",
+  "handling commands",
+  "running game sessions",
 ];
 
 const setRandomPresence = (client) => {
@@ -59,7 +37,6 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildEmojisAndStickers,
-    GatewayIntentBits.GuildVoiceStates,
   ],
 });
 
@@ -72,31 +49,10 @@ client.once(Events.ClientReady, async (readyClient) => {
     "[NexKord - ADM] Bot is online and running on extreme low-memory profile.",
   );
 
-  await postMinecraftDashboard(client);
-  await postAmongUsDashboard(client);
-
-  connectWebSocket({
-    onStatsUpdate: updateDashboardWithStats,
-    onConsoleUpdate: updateDashboardWithConsole,
-  });
-
-  initUptimeMonitor(client);
-
-  await initVoiceManager(client);
-  startEventServer();
-
   await initAkinator(client);
 
   setRandomPresence(readyClient);
   setInterval(() => setRandomPresence(readyClient), 300000);
-});
-
-client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
-  try {
-    await handleVoiceStateUpdate(oldState, newState);
-  } catch (error) {
-    console.error("[VoiceState] handler error:", error);
-  }
 });
 
 client.on(Events.MessageCreate, async (message) => {
@@ -111,14 +67,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand() || interaction.isAutocomplete()) {
       await handleSlashCommand(interaction);
-    } else {
-      const handledByAkinator = await handleAkinatorButton(interaction);
-      if (handledByAkinator) return;
-      const handledByAmongUs = await handleAmongUsInteraction(interaction);
-      if (!handledByAmongUs) {
-        await handleMinecraftInteraction(interaction);
-      }
+      return;
     }
+    await handleAkinatorButton(interaction);
   } catch (error) {
     console.error("Interaction error:", error);
   }
@@ -135,16 +86,9 @@ process.on("uncaughtException", (err) => {
 
 client.login(process.env.DISCORD_TOKEN);
 
-/**
- * Handles graceful shutdown of the NexKord-ADM client: closes the shared
- * Akinator TLS client, stops the event server, destroys the Discord client,
- * and exits.
- * @returns {Promise<void>}
- */
 const shutdown = async () => {
   console.log("[NexKord - ADM] Shutting down gracefully...");
   await closeClient().catch(() => {});
-  stopEventServer();
   client.destroy();
   process.exit(0);
 };

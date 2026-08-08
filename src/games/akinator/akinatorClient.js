@@ -12,6 +12,10 @@ const JA3 =
 const SID = "1";
 /** Optional egress proxy (Cloudflare WARP socks5) for a non-datacenter IP. */
 const PROXY = process.env.AKINATOR_PROXY || "";
+const REQUEST_TIMEOUT_MS = Number.parseInt(
+  process.env.AKINATOR_REQUEST_TIMEOUT_MS || "15000",
+  10,
+);
 
 /**
  * Answer keys mapped to Akinator's numeric answer ids.
@@ -29,7 +33,9 @@ function decodeEntities(value) {
   if (!value) return value;
   return String(value)
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) =>
+      String.fromCharCode(parseInt(n, 16)),
+    )
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
     .replace(/&lt;/g, "<")
@@ -48,6 +54,20 @@ function decodeEntities(value) {
 function pick(text, re) {
   const m = String(text).match(re);
   return m ? m[1] : null;
+}
+
+function withTimeout(promise, ms, label) {
+  const timeout = Number.isFinite(ms) && ms > 0 ? ms : 15000;
+  let timer = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${timeout}ms.`)),
+      timeout,
+    );
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 /**
@@ -80,7 +100,8 @@ export class AkinatorClient {
     for (const c of Array.isArray(sc) ? sc : [sc]) {
       const pair = String(c).split(";")[0];
       const i = pair.indexOf("=");
-      if (i > 0) this.cookies[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
+      if (i > 0)
+        this.cookies[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
     }
   }
 
@@ -89,7 +110,9 @@ export class AkinatorClient {
    * @returns {string}
    */
   _cookieHeader() {
-    return Object.entries(this.cookies).map(([k, v]) => `${k}=${v}`).join("; ");
+    return Object.entries(this.cookies)
+      .map(([k, v]) => `${k}=${v}`)
+      .join("; ");
   }
 
   /**
@@ -102,23 +125,27 @@ export class AkinatorClient {
   async _api(apiPath, body) {
     const client = await getClient();
     const cookie = this._cookieHeader();
-    const res = await client(
-      `${BASE}${apiPath}`,
-      {
-        body,
-        ja3: JA3,
-        ...(PROXY ? { proxy: PROXY } : {}),
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          "user-agent": UA,
-          "x-requested-with": "XMLHttpRequest",
-          accept: "application/json, text/javascript, */*; q=0.01",
-          origin: BASE,
-          referer: `${BASE}/game`,
-          ...(cookie ? { cookie } : {}),
+    const res = await withTimeout(
+      client(
+        `${BASE}${apiPath}`,
+        {
+          body,
+          ja3: JA3,
+          ...(PROXY ? { proxy: PROXY } : {}),
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            "user-agent": UA,
+            "x-requested-with": "XMLHttpRequest",
+            accept: "application/json, text/javascript, */*; q=0.01",
+            origin: BASE,
+            referer: `${BASE}/game`,
+            ...(cookie ? { cookie } : {}),
+          },
         },
-      },
-      "post",
+        "post",
+      ),
+      REQUEST_TIMEOUT_MS,
+      `Akinator request ${apiPath}`,
     );
     this._storeCookies(res.headers);
     return res;
@@ -134,7 +161,8 @@ export class AkinatorClient {
    * @throws {Error} On a non-JSON body or an expired session.
    */
   _consume(res) {
-    const data = res.body && typeof res.body === "object" ? res.body : safeJson(res.body);
+    const data =
+      res.body && typeof res.body === "object" ? res.body : safeJson(res.body);
     if (!data) {
       throw new Error(`Akinator API returned non-JSON (status ${res.status}).`);
     }
@@ -181,19 +209,26 @@ export class AkinatorClient {
     const text = String(res.body || "");
 
     this.session =
-      pick(text, /#session'\)\.val\('(.+?)'\)/) || pick(text, /session: '(.+?)'/);
+      pick(text, /#session'\)\.val\('(.+?)'\)/) ||
+      pick(text, /session: '(.+?)'/);
     this.signature =
-      pick(text, /#signature'\)\.val\('(.+?)'\)/) || pick(text, /signature: '(.+?)'/);
+      pick(text, /#signature'\)\.val\('(.+?)'\)/) ||
+      pick(text, /signature: '(.+?)'/);
     const question = pick(
       text,
       /<p class="question-text" id="question-label">(.+?)<\/p>/,
     );
 
     if (!this.session || !this.signature || !question) {
-      if (res.status !== 200 || /just a moment|attention required|cf-chl|error code/i.test(text)) {
+      if (
+        res.status !== 200 ||
+        /just a moment|attention required|cf-chl|error code/i.test(text)
+      ) {
         throw new Error(`Blocked by Cloudflare (status ${res.status}).`);
       }
-      throw new Error("Could not start Akinator session (unexpected response).");
+      throw new Error(
+        "Could not start Akinator session (unexpected response).",
+      );
     }
 
     this.step = 0;
@@ -203,7 +238,12 @@ export class AkinatorClient {
     this.question = decodeEntities(question);
 
     auditLog("info", "AKINATOR", "Game started (theme=characters).");
-    return { type: "question", question: this.question, step: "0", progression: 0 };
+    return {
+      type: "question",
+      question: this.question,
+      step: "0",
+      progression: 0,
+    };
   }
 
   /**
@@ -246,7 +286,12 @@ export class AkinatorClient {
    */
   async back() {
     if (this.step <= 0) {
-      return { type: "question", question: this.question, step: String(this.step), progression: this.progression };
+      return {
+        type: "question",
+        question: this.question,
+        step: String(this.step),
+        progression: this.progression,
+      };
     }
     const res = await this._api(
       "/cancel_answer",
@@ -289,7 +334,11 @@ export class AkinatorClient {
       }).toString(),
     );
     const state = this._consume(res);
-    auditLog("info", "AKINATOR", `guess declined -> ${state.type} (step ${this.step})`);
+    auditLog(
+      "info",
+      "AKINATOR",
+      `guess declined -> ${state.type} (step ${this.step})`,
+    );
     return state;
   }
 

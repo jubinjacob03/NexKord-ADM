@@ -20,12 +20,6 @@ Thumbs.db
 logs/
 *.log
 
-# C# Build Artifacts
-src/games/amongus/ImpostorApiPlugin/bin/
-src/games/amongus/ImpostorApiPlugin/obj/
-*.dll
-*.pdb
-
 # Docker
 .dockerignore
 

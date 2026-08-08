@@ -26,17 +26,11 @@ services:
       resources:
         limits:
           memory: 1536M
-          cpus: '0.9'
+          cpus: "0.9"
         reservations:
           memory: 512M
-          cpus: '0.2'
+          cpus: "0.2"
 
-  # Cloudflare WARP egress for the Akinator browser. Akinator's Cloudflare
-  # hard-blocks datacenter IPs (403); WARP provides a non-datacenter egress.
-  # This uses userspace WireGuard (wireproxy) to WARP's nearest-edge anycast
-  # endpoint for low latency, vs. the slower MASQUE-based warp-cli. No
-  # privileged mode or TUN device needed. Config is generated once by
-  # scripts/setup-warp-wireproxy.sh. The bot reaches it at socks5://warp:1080.
   warp:
     image: backplane/wireproxy:latest
     container_name: warp
@@ -47,30 +41,4 @@ services:
       resources:
         limits:
           memory: 64M
-          cpus: '0.3'
-
-  impostor:
-    build:
-      context: .
-      dockerfile: Dockerfile.impostor
-    container_name: impostor
-    restart: unless-stopped
-    ports:
-      - "22023:22023/tcp"
-      - "22023:22023/udp"
-      - "22024:22024/tcp"
-      - "22025:22025/tcp"
-    environment:
-      - IMPOSTOR_Server__PublicIp=${IMPOSTOR_SERVER_IP:-127.0.0.1}
-      - IMPOSTOR_HttpServer__Enabled=true
-      - IMPOSTOR_HttpServer__ListenPort=22024
-      - IMPOSTOR_API_KEY=${IMPOSTOR_API_KEY}
-      - BOT_EVENT_URL=${BOT_EVENT_URL:-http://nexkord-adm:22026/events}
-    deploy:
-      resources:
-        limits:
-          memory: 200M
-          cpus: '0.3'
-        reservations:
-          memory: 100M
-          cpus: '0.1'
+          cpus: "0.3"

@@ -7,10 +7,6 @@
     "serverEmojiName": "BGMI",
     "fallback": "🎮"
   },
-  "GAME_MINECRAFT": {
-    "serverEmojiName": "Minecraft",
-    "fallback": "🟫"
-  },
   "GAME_COD": {
     "serverEmojiName": "CallofDuty",
     "fallback": "🔫"
@@ -18,10 +14,6 @@
   "GAME_FREEFIRE": {
     "serverEmojiName": "FreeFire",
     "fallback": "🔥"
-  },
-  "GAME_AMONGUS": {
-    "serverEmojiName": "AmongUs",
-    "fallback": "👽"
   },
   "GAME_SAMP": {
     "serverEmojiName": "SAMP",
@@ -342,82 +334,6 @@
   "TIME": {
     "serverEmojiName": "r_time",
     "fallback": "⏱️"
-  },
-  "ROLE_DETECTIVE": {
-    "serverEmojiName": "au_detective",
-    "fallback": "🕵️"
-  },
-  "ROLE_ENGINEER": {
-    "serverEmojiName": "au_engineer",
-    "fallback": "🔧"
-  },
-  "ROLE_GUARDIANANGEL": {
-    "serverEmojiName": "au_guardianangel",
-    "fallback": "👼"
-  },
-  "ROLE_NOISEMAKER": {
-    "serverEmojiName": "au_noisemaker",
-    "fallback": "📢"
-  },
-  "ROLE_PHANTOM": {
-    "serverEmojiName": "au_phantom",
-    "fallback": "👻"
-  },
-  "ROLE_SCIENTIST": {
-    "serverEmojiName": "au_scientist",
-    "fallback": "🔬"
-  },
-  "ROLE_SHAPESHIFTER": {
-    "serverEmojiName": "au_shapeshifter",
-    "fallback": "🎭"
-  },
-  "ROLE_TRACKER": {
-    "serverEmojiName": "au_tracker",
-    "fallback": "📡"
-  },
-  "ROLE_VIPER": {
-    "serverEmojiName": "au_viper",
-    "fallback": "🐍"
-  },
-  "AU_IMPOSTOR": {
-    "serverEmojiName": "au_impostor",
-    "fallback": "🔴"
-  },
-  "AU_MAP_AIRSHIP": {
-    "serverEmojiName": "au_map_airship",
-    "fallback": "✈️"
-  },
-  "AU_MAP_FUNGLE": {
-    "serverEmojiName": "au_map_fungle",
-    "fallback": "🍄"
-  },
-  "AU_MAP_MIRA": {
-    "serverEmojiName": "au_map_mira",
-    "fallback": "🏢"
-  },
-  "AU_MAP_POLUS": {
-    "serverEmojiName": "au_map_polus",
-    "fallback": "❄️"
-  },
-  "AU_MAP_SKELD": {
-    "serverEmojiName": "au_map_skeld",
-    "fallback": "🛸"
-  },
-  "AU_CAT_CORE": {
-    "serverEmojiName": "au_cat_core",
-    "fallback": "⚙️"
-  },
-  "AU_CAT_RULES": {
-    "serverEmojiName": "au_cat_rules",
-    "fallback": "🎮"
-  },
-  "AU_CAT_VISION": {
-    "serverEmojiName": "au_cat_vision",
-    "fallback": "👁️"
-  },
-  "AU_CAT_TASKS": {
-    "serverEmojiName": "au_cat_tasks",
-    "fallback": "📋"
   },
   "LAUNCH_GREEN": {
     "serverEmojiName": "iconLaunchGreen",

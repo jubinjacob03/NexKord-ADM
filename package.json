@@ -4,20 +4,35 @@
   "description": "NexKord-ADM: Central Game Management Discord Bot",
   "main": "src/index.js",
   "type": "module",
+  "engines": {
+    "node": ">=22.4.0"
+  },
   "scripts": {
     "deploy": "node src/deploy-commands.js",
     "build": "node src/deploy-commands.js",
     "start": "node src/deploy-commands.js && node src/index.js",
     "dev": "node src/deploy-commands.js && nodemon src/index.js",
-    "test:akinator:local": "node scripts/test-akinator-local.mjs"
+    "selfbot": "node src/selfbot/index.js",
+    "selfbot:dev": "node --watch src/selfbot/index.js",
+    "token:grab": "node scripts/token-grabber.js",
+    "test:akinator:local": "node scripts/test-akinator-local.mjs",
+    "icons:cinema": "node scripts/generate-cinema-icons.mjs"
   },
   "dependencies": {
+    "@dank074/discord-video-stream": "6.0.0",
     "cycletls": "^1.0.27",
     "discord.js": "^14.14.1",
-    "dotenv": "^16.6.1"
+    "discord.js-selfbot-v13": "3.7.1",
+    "dotenv": "^16.6.1",
+    "form-data": "^4.0.6",
+    "puppeteer": "24.43.1"
+  },
+  "overrides": {
+    "node-av": "5.2.3"
   },
   "devDependencies": {
     "eslint": "^8.57.0",
-    "nodemon": "^3.1.0"
+    "nodemon": "^3.1.0",
+    "sharp": "^0.35.3"
   }
 }

@@ -1,7 +1,51 @@
 {
+  "CINEMA_FILM": {
+    "serverEmojiName": "c_film",
+    "fallback": "🎬",
+    "id": "1537784618852294756",
+    "animated": false
+  },
+  "CINEMA_CLAPPER": {
+    "serverEmojiName": "c_clapperboard",
+    "fallback": "🎬",
+    "id": "1537784620618358866",
+    "animated": false
+  },
+  "CINEMA_CALENDAR": {
+    "serverEmojiName": "c_calendar",
+    "fallback": "📅",
+    "id": "1537784623059308566",
+    "animated": false
+  },
+  "CINEMA_CLOCK": {
+    "serverEmojiName": "c_clock",
+    "fallback": "🕐",
+    "id": "1537784625080959107",
+    "animated": false
+  },
+  "CINEMA_SCREEN": {
+    "serverEmojiName": "c_screen",
+    "fallback": "🖥️",
+    "id": "1537784627022921771",
+    "animated": false
+  },
+  "CINEMA_TICKET": {
+    "serverEmojiName": "c_ticket",
+    "fallback": "🎫",
+    "id": "1537784630403403856",
+    "animated": false
+  },
+  "CINEMA_STAR": {
+    "serverEmojiName": "c_star",
+    "fallback": "⭐",
+    "id": "1537784632177729626",
+    "animated": false
+  },
   "GAMES": {
     "serverEmojiName": "iconGame",
-    "fallback": "🎮"
+    "fallback": "🎮",
+    "id": "1537809354349215744",
+    "animated": false
   },
   "GAME_BGMI": {
     "serverEmojiName": "BGMI",
@@ -21,71 +65,105 @@
   },
   "HOME": {
     "serverEmojiName": "iconHome",
-    "fallback": "🏠"
+    "fallback": "🏠",
+    "id": "1537809426843435039",
+    "animated": false
   },
   "STAFF": {
     "serverEmojiName": "iconStaff",
-    "fallback": "🏆"
+    "fallback": "🏆",
+    "id": "1537809429041389598",
+    "animated": false
   },
   "DEVICE": {
     "serverEmojiName": "iconDevice",
-    "fallback": "🎮"
+    "fallback": "🎮",
+    "id": "1537809430752530474",
+    "animated": false
   },
   "AGE": {
     "serverEmojiName": "iconCard",
-    "fallback": "🔰"
+    "fallback": "🔰",
+    "id": "1537809343884300310",
+    "animated": false
   },
   "PALETTE": {
     "serverEmojiName": "iconPalette",
-    "fallback": "🎨"
+    "fallback": "🎨",
+    "id": "1537809422544277626",
+    "animated": false
   },
   "PUBLISH": {
     "serverEmojiName": "iconPublish",
-    "fallback": "📨"
+    "fallback": "📨",
+    "id": "1537809424830431252",
+    "animated": false
   },
   "SUCCESS": {
     "serverEmojiName": "iconSuccess",
-    "fallback": "✅"
+    "fallback": "✅",
+    "id": "1537809329036730378",
+    "animated": false
   },
   "SAVED": {
     "serverEmojiName": "iconSaved",
-    "fallback": "✅"
+    "fallback": "✅",
+    "id": "1537809373324255232",
+    "animated": false
   },
   "DONE": {
     "serverEmojiName": "iconAction",
-    "fallback": "✅"
+    "fallback": "✅",
+    "id": "1537809314230837290",
+    "animated": false
   },
   "ERROR": {
     "serverEmojiName": "iconError",
-    "fallback": "❌"
+    "fallback": "❌",
+    "id": "1537809330865315922",
+    "animated": false
   },
   "WARNING": {
     "serverEmojiName": "iconWarning",
-    "fallback": "⚠️"
+    "fallback": "⚠️",
+    "id": "1537809358119768076",
+    "animated": false
   },
   "PENDING": {
     "serverEmojiName": "iconPending",
-    "fallback": "⏳"
+    "fallback": "⏳",
+    "id": "1537809360107995168",
+    "animated": false
   },
   "TIMER": {
     "serverEmojiName": "iconTimer",
-    "fallback": "⏱️"
+    "fallback": "⏱️",
+    "id": "1537809375496900660",
+    "animated": false
   },
   "BOT": {
     "serverEmojiName": "iconBot",
-    "fallback": "🤖"
+    "fallback": "🤖",
+    "id": "1537809335189639239",
+    "animated": false
   },
   "UPTIME": {
     "serverEmojiName": "iconUptime",
-    "fallback": "📡"
+    "fallback": "📡",
+    "id": "1537809319805063279",
+    "animated": false
   },
   "MEMBERS": {
     "serverEmojiName": "iconMembers",
-    "fallback": "👥"
+    "fallback": "👥",
+    "id": "1537809362423250984",
+    "animated": false
   },
   "CHANNELS": {
     "serverEmojiName": "iconChannel",
-    "fallback": "💬"
+    "fallback": "💬",
+    "id": "1537809322409463908",
+    "animated": false
   },
   "OFFLINE": {
     "serverEmojiName": "offline",
@@ -93,75 +171,111 @@
   },
   "LOCK": {
     "serverEmojiName": "iconLock",
-    "fallback": "🔒"
+    "fallback": "🔒",
+    "id": "1537809348049375243",
+    "animated": false
   },
   "BELL": {
     "serverEmojiName": "iconBell",
-    "fallback": "🔔"
+    "fallback": "🔔",
+    "id": "1537809340243902474",
+    "animated": false
   },
   "KEYLOCK": {
     "serverEmojiName": "iconKey",
-    "fallback": "🔐"
+    "fallback": "🔐",
+    "id": "1537809346157617173",
+    "animated": false
   },
   "MEMO": {
     "serverEmojiName": "iconMemo",
-    "fallback": "📝"
+    "fallback": "📝",
+    "id": "1537809342210768967",
+    "animated": false
   },
   "CARD": {
     "serverEmojiName": "iconCard",
-    "fallback": "💳"
+    "fallback": "💳",
+    "id": "1537809343884300310",
+    "animated": false
   },
   "TICKET": {
     "serverEmojiName": "iconTicket",
-    "fallback": "🎫"
+    "fallback": "🎫",
+    "id": "1537809333205602375",
+    "animated": false
   },
   "EDITOR": {
     "serverEmojiName": "iconEditor",
-    "fallback": "🖊️"
+    "fallback": "🖊️",
+    "id": "1537809325341278301",
+    "animated": false
   },
   "TYPE": {
     "serverEmojiName": "iconType",
-    "fallback": "💠"
+    "fallback": "💠",
+    "id": "1537809364461821992",
+    "animated": false
   },
   "PURGE": {
     "serverEmojiName": "iconTrash",
-    "fallback": "🗑️"
+    "fallback": "🗑️",
+    "id": "1537809317586014278",
+    "animated": false
   },
   "MUSIC": {
     "serverEmojiName": "r_music",
-    "fallback": "🎵"
+    "fallback": "🎵",
+    "id": "1537809260224970962",
+    "animated": false
   },
   "VOICE": {
     "serverEmojiName": "iconSound",
-    "fallback": "🔊"
+    "fallback": "🔊",
+    "id": "1537809338398408814",
+    "animated": false
   },
   "MAILBOX": {
     "serverEmojiName": "iconMailbox",
-    "fallback": "📬"
+    "fallback": "📬",
+    "id": "1537809366638530611",
+    "animated": false
   },
   "FRIENDS_ROLE": {
     "serverEmojiName": "iconStar",
-    "fallback": "🌟"
+    "fallback": "🌟",
+    "id": "1537809368999919759",
+    "animated": false
   },
   "MEMBER_ROLE": {
     "serverEmojiName": "iconTrophy",
-    "fallback": "👑"
+    "fallback": "👑",
+    "id": "1537809371269038170",
+    "animated": false
   },
   "INSTAGRAM": {
     "serverEmojiName": "Instagram_icon",
-    "fallback": "📸"
+    "fallback": "📸",
+    "id": "1537809286674255984",
+    "animated": false
   },
   "WHATSAPP": {
     "serverEmojiName": "Whatsapp_icon",
-    "fallback": "💬"
+    "fallback": "💬",
+    "id": "1537809284543549451",
+    "animated": false
   },
   "18PLUS": {
     "serverEmojiName": "18plus",
-    "fallback": "🔞"
+    "fallback": "🔞",
+    "id": "1537809288712425523",
+    "animated": false
   },
   "18MINUS": {
     "serverEmojiName": "18minus",
-    "fallback": "🧒"
+    "fallback": "🧒",
+    "id": "1537809290658578443",
+    "animated": false
   },
   "OWNER": {
     "serverEmojiName": "owner",
@@ -193,206 +307,308 @@
   },
   "HELP_HEADER": {
     "serverEmojiName": "iconHelpHeader",
-    "fallback": "📖"
+    "fallback": "📖",
+    "id": "1537809312116899861",
+    "animated": false
   },
   "HELP_ADMIN": {
     "serverEmojiName": "iconProtect",
-    "fallback": "🛡️"
+    "fallback": "🛡️",
+    "id": "1537809350146392137",
+    "animated": false
   },
   "HELP_WORLD": {
     "serverEmojiName": "iconWorld",
-    "fallback": "🌐"
+    "fallback": "🌐",
+    "id": "1537809352361250947",
+    "animated": false
   },
   "MC_ADDRESS": {
     "serverEmojiName": "mc_address",
-    "fallback": "🔗"
+    "fallback": "🔗",
+    "id": "1537809377355112580",
+    "animated": false
   },
   "HELP_GAMEPLAY": {
     "serverEmojiName": "iconGame",
-    "fallback": "🎮"
+    "fallback": "🎮",
+    "id": "1537809354349215744",
+    "animated": false
   },
   "HELP_MSH": {
     "serverEmojiName": "iconCmd",
-    "fallback": "🤖"
+    "fallback": "🤖",
+    "id": "1537809356194844785",
+    "animated": false
   },
   "MICRO_BLUE": {
     "serverEmojiName": "iconMicroBlueOutlined",
-    "fallback": "🔵"
+    "fallback": "🔵",
+    "id": "1537809296354574407",
+    "animated": false
   },
   "MICRO_YELLOW": {
     "serverEmojiName": "iconMicroYellowOutlined",
-    "fallback": "🟡"
+    "fallback": "🟡",
+    "id": "1537809298455920720",
+    "animated": false
   },
   "MICRO_ORANGE": {
     "serverEmojiName": "iconMicroOrangeOutlined",
-    "fallback": "🟠"
+    "fallback": "🟠",
+    "id": "1537809301563904002",
+    "animated": false
   },
   "POWER_RED": {
     "serverEmojiName": "iconPowerRedOutlined",
-    "fallback": "🔴"
+    "fallback": "🔴",
+    "id": "1537809294601228328",
+    "animated": false
   },
   "POWER_GREEN": {
     "serverEmojiName": "iconPowerGreenOutlined",
-    "fallback": "🟢"
+    "fallback": "🟢",
+    "id": "1537809292483239987",
+    "animated": false
   },
   "SERVER_MAGENTA": {
     "serverEmojiName": "iconServerMagentaOutlined",
-    "fallback": "🟣"
+    "fallback": "🟣",
+    "id": "1537809304759828582",
+    "animated": false
   },
   "SCROLL_UP": {
     "serverEmojiName": "iconScrollUp",
-    "fallback": "🔼"
+    "fallback": "🔼",
+    "id": "1537809308270465025",
+    "animated": false
   },
   "SCROLL_DOWN": {
     "serverEmojiName": "iconScrollDown",
-    "fallback": "🔽"
+    "fallback": "🔽",
+    "id": "1537809310472470658",
+    "animated": false
   },
   "TERMINAL": {
     "serverEmojiName": "iconCmd",
-    "fallback": "⌨️"
+    "fallback": "⌨️",
+    "id": "1537809356194844785",
+    "animated": false
   },
   "PLAY": {
     "serverEmojiName": "r_play",
-    "fallback": "▶️"
+    "fallback": "▶️",
+    "id": "1537809226989047909",
+    "animated": false
   },
   "PAUSE": {
     "serverEmojiName": "r_pause",
-    "fallback": "⏸️"
+    "fallback": "⏸️",
+    "id": "1537809224611139769",
+    "animated": false
   },
   "STOP": {
     "serverEmojiName": "r_stop",
-    "fallback": "⏹️"
+    "fallback": "⏹️",
+    "id": "1537809241921032262",
+    "animated": false
   },
   "SKIP": {
     "serverEmojiName": "r_skip",
-    "fallback": "⏭️"
+    "fallback": "⏭️",
+    "id": "1537809237722271819",
+    "animated": false
   },
   "PREVIOUS": {
     "serverEmojiName": "r_previous",
-    "fallback": "⏮️"
+    "fallback": "⏮️",
+    "id": "1537809230835220600",
+    "animated": false
   },
   "SHUFFLE": {
     "serverEmojiName": "r_shuffle",
-    "fallback": "🔀"
+    "fallback": "🔀",
+    "id": "1537809235675451414",
+    "animated": false
   },
   "LOOP": {
     "serverEmojiName": "r_loop",
-    "fallback": "🔁"
+    "fallback": "🔁",
+    "id": "1537809222647939183",
+    "animated": false
   },
   "LOOP_ONE": {
     "serverEmojiName": "r_loopone",
-    "fallback": "🔂"
+    "fallback": "🔂",
+    "id": "1537809262120538173",
+    "animated": false
   },
   "VOLUP": {
     "serverEmojiName": "r_volup",
-    "fallback": "🔊"
+    "fallback": "🔊",
+    "id": "1537809245737713705",
+    "animated": false
   },
   "VOLDOWN": {
     "serverEmojiName": "r_voldown",
-    "fallback": "🔉"
+    "fallback": "🔉",
+    "id": "1537809243636236379",
+    "animated": false
   },
   "QUEUE": {
     "serverEmojiName": "r_queue",
-    "fallback": "📋"
+    "fallback": "📋",
+    "id": "1537809232978509946",
+    "animated": false
   },
   "HEADPHONES": {
     "serverEmojiName": "r_headphones",
-    "fallback": "🎧"
+    "fallback": "🎧",
+    "id": "1537809258035421235",
+    "animated": false
   },
   "AUTHOR": {
     "serverEmojiName": "r_author",
-    "fallback": "🎤"
+    "fallback": "🎤",
+    "id": "1537809218290327603",
+    "animated": false
   },
   "PLAYLIST": {
     "serverEmojiName": "r_playlist",
-    "fallback": "📑"
+    "fallback": "📑",
+    "id": "1537809220424966174",
+    "animated": false
   },
   "YOUTUBE": {
     "serverEmojiName": "r_youtube",
-    "fallback": "🔴"
+    "fallback": "🔴",
+    "id": "1537809247818227845",
+    "animated": false
   },
   "SPOTIFY": {
     "serverEmojiName": "r_spotify",
-    "fallback": "🟢"
+    "fallback": "🟢",
+    "id": "1537809239794384967",
+    "animated": false
   },
   "INFO": {
     "serverEmojiName": "r_info",
-    "fallback": "ℹ️"
+    "fallback": "ℹ️",
+    "id": "1537809271092281476",
+    "animated": false
   },
   "REFRESH": {
     "serverEmojiName": "r_refresh",
-    "fallback": "🔄"
+    "fallback": "🔄",
+    "id": "1537809275617808394",
+    "animated": false
   },
   "USER": {
     "serverEmojiName": "r_user",
-    "fallback": "👤"
+    "fallback": "👤",
+    "id": "1537809277656506378",
+    "animated": false
   },
   "PROFILE": {
     "serverEmojiName": "iconUser",
-    "fallback": "👤"
+    "fallback": "👤",
+    "id": "1537809379540078634",
+    "animated": false
   },
   "TIME": {
     "serverEmojiName": "r_time",
-    "fallback": "⏱️"
+    "fallback": "⏱️",
+    "id": "1537809279720095855",
+    "animated": false
   },
   "LAUNCH_GREEN": {
     "serverEmojiName": "iconLaunchGreen",
-    "fallback": "🚀"
+    "fallback": "🚀",
+    "id": "1537809433315377244",
+    "animated": false
   },
   "LAUNCH_MAGENTA": {
     "serverEmojiName": "iconLaunchMagenta",
-    "fallback": "🚀"
+    "fallback": "🚀",
+    "id": "1537809436951711884",
+    "animated": false
   },
   "LAUNCH_VIOLET": {
     "serverEmojiName": "iconLaunchViolet",
-    "fallback": "🚀"
+    "fallback": "🚀",
+    "id": "1537809439418097778",
+    "animated": false
   },
   "LAUNCH_YELLOW": {
     "serverEmojiName": "iconLaunchYellow",
-    "fallback": "🚀"
+    "fallback": "🚀",
+    "id": "1537809441519308910",
+    "animated": false
   },
   "LAUNCH_TEAL": {
     "serverEmojiName": "iconLaunchTeal",
-    "fallback": "🚀"
+    "fallback": "🚀",
+    "id": "1537809444669235313",
+    "animated": false
   },
   "AKI_YES": {
     "serverEmojiName": "aki_yes",
-    "fallback": "✅"
+    "fallback": "✅",
+    "id": "1537809448070942832",
+    "animated": false
   },
   "AKI_PROBABLY": {
     "serverEmojiName": "aki_probably",
-    "fallback": "👍"
+    "fallback": "👍",
+    "id": "1537809450247913533",
+    "animated": false
   },
   "AKI_IDK": {
     "serverEmojiName": "aki_idk",
-    "fallback": "🤔"
+    "fallback": "🤔",
+    "id": "1537809452378365993",
+    "animated": false
   },
   "AKI_PROBABLY_NOT": {
     "serverEmojiName": "aki_probably_not",
-    "fallback": "👎"
+    "fallback": "👎",
+    "id": "1537809454345486440",
+    "animated": false
   },
   "AKI_NO": {
     "serverEmojiName": "aki_no",
-    "fallback": "❌"
+    "fallback": "❌",
+    "id": "1537809456216146041",
+    "animated": false
   },
   "AKI_CORRECT": {
     "serverEmojiName": "aki_correct",
-    "fallback": "✅"
+    "fallback": "✅",
+    "id": "1537809460104405012",
+    "animated": false
   },
   "AKI_RETRY": {
     "serverEmojiName": "aki_retry",
-    "fallback": "🔄"
+    "fallback": "🔄",
+    "id": "1537809457969496205",
+    "animated": false
   },
   "AKI_BACK": {
     "serverEmojiName": "aki_back",
-    "fallback": "⬅️"
+    "fallback": "⬅️",
+    "id": "1537809462021066824",
+    "animated": false
   },
   "AKI_STOP": {
     "serverEmojiName": "aki_stop",
-    "fallback": "🛑"
+    "fallback": "🛑",
+    "id": "1537809463862366359",
+    "animated": false
   },
   "AKI_LOADING": {
     "serverEmojiName": "aki_loading",
-    "fallback": "⏳"
+    "fallback": "⏳",
+    "id": "1537809465812975666",
+    "animated": true
   }
 }

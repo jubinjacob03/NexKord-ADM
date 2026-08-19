@@ -1,74 +1,50 @@
 import iconMap from "./icon-map.json" with { type: "json" };
 
-/**
- * Resolved custom emoji strings, populated by initIcons().
- * Falls back to unicode if the server emoji isn't found.
- * @type {Record<string, string>}
- */
 const resolved = {};
-
-/**
- * Resolved custom emoji objects for use in select menus/buttons
- * @type {Record<string, {name: string, id: string} | string>}
- */
 const resolvedObjects = {};
 
-/**
- * Call once in the ready event after the client is logged in.
- * Resolves every icon-map entry to a Discord custom emoji from two sources,
- * in priority order: application-owned emojis (render anywhere the bot is)
- * and then guild emojis. Unresolved entries fall back to their unicode glyph.
- * @param {import('discord.js').Client} client
- * @returns {Promise<void>}
- */
-export async function initIcons(client) {
-  const emojiByName = new Map();
+for (const [key, entry] of Object.entries(iconMap)) {
+  if (key.startsWith("_")) continue;
+  if (entry.id) {
+    const a = entry.animated ? "a" : "";
+    resolved[key] = `<${a}:${entry.serverEmojiName}:${entry.id}>`;
+    resolvedObjects[key] = {
+      name: entry.serverEmojiName,
+      id: entry.id,
+      animated: entry.animated || false,
+    };
+  } else {
+    resolved[key] = entry.fallback;
+    resolvedObjects[key] = entry.fallback;
+  }
+}
 
+export async function initIcons(client) {
   try {
     const appEmojis = await client.application.emojis.fetch();
-    for (const emoji of appEmojis.values()) {
-      if (emoji.name) emojiByName.set(emoji.name, emoji);
-    }
-  } catch (err) {
-    console.warn(`[ICONS] Failed to fetch application emojis: ${err.message}`);
-  }
-
-  for (const guild of client.guilds.cache.values()) {
-    for (const emoji of guild.emojis.cache.values()) {
-      if (emoji.name && !emojiByName.has(emoji.name)) {
-        emojiByName.set(emoji.name, emoji);
+    for (const [key, entry] of Object.entries(iconMap)) {
+      if (key.startsWith("_")) continue;
+      const emoji = appEmojis.find((e) => e.name === entry.serverEmojiName);
+      if (emoji) {
+        resolved[key] =
+          `<${emoji.animated ? "a" : ""}:${emoji.name}:${emoji.id}>`;
+        resolvedObjects[key] = {
+          name: emoji.name,
+          id: emoji.id,
+          animated: emoji.animated || false,
+        };
       }
     }
-  }
-
-  let loaded = 0;
-  const missing = [];
-  for (const [key, entry] of Object.entries(iconMap)) {
-    if (key.startsWith("_")) continue;
-    const emoji = emojiByName.get(entry.serverEmojiName);
-    if (emoji) {
-      resolved[key] =
-        `<${emoji.animated ? "a" : ""}:${emoji.name}:${emoji.id}>`;
-      resolvedObjects[key] = {
-        name: emoji.name,
-        id: emoji.id,
-        animated: emoji.animated || false,
-      };
-      loaded++;
-    } else {
-      resolved[key] = entry.fallback;
-      resolvedObjects[key] = entry.fallback;
-      missing.push(`${key} (${entry.serverEmojiName})`);
-    }
+    console.log(`[ICONS] Refreshed from ${appEmojis.size} app emojis`);
+  } catch {
+    console.log(`[ICONS] Using hardcoded IDs`);
   }
 
   const total = Object.keys(iconMap).filter((k) => !k.startsWith("_")).length;
-  console.log(`[ICONS] Loaded ${loaded}/${total} custom icons`);
-  if (missing.length) {
-    console.warn(
-      `[ICONS] ${missing.length} using unicode fallback: ${missing.join(", ")}`,
-    );
-  }
+  const loaded = Object.entries(resolved).filter(
+    ([, v]) => typeof v === "string" && v.startsWith("<"),
+  ).length;
+  console.log(`[ICONS] ${loaded}/${total} custom icons ready`);
 }
 
 /**

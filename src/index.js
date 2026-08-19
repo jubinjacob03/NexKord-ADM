@@ -8,6 +8,12 @@ import {
   handleAkinatorButton,
 } from "./games/akinator/game.js";
 import { closeClient } from "./games/akinator/tlsClient.js";
+import {
+  initCinema,
+  handleCinemaButton,
+  handleCinemaModal,
+  handleCinemaSelect,
+} from "./games/cinema/controller.js";
 import { initIcons } from "./utils/icons.js";
 
 dotenv.config();
@@ -50,6 +56,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   );
 
   await initAkinator(client);
+  await initCinema(client);
 
   setRandomPresence(readyClient);
   setInterval(() => setRandomPresence(readyClient), 300000);
@@ -69,6 +76,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await handleSlashCommand(interaction);
       return;
     }
+    const handledByCinema = await handleCinemaButton(interaction);
+    if (handledByCinema) return;
+    const handledByCinemaModal = await handleCinemaModal(interaction);
+    if (handledByCinemaModal) return;
+    const handledByCinemaSelect = await handleCinemaSelect(interaction);
+    if (handledByCinemaSelect) return;
     await handleAkinatorButton(interaction);
   } catch (error) {
     console.error("Interaction error:", error);

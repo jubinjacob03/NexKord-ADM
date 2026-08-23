@@ -30,6 +30,18 @@ export function getDownloadProgress(movieId) {
   return null;
 }
 
+export function cancelDownload(movieId) {
+  const target = movieId
+    ? activeDownloads.get(movieId)
+    : [...activeDownloads.values()][0];
+
+  if (!target || target.done || target.cancelled) return null;
+
+  target.cancelled = true;
+  target.controller?.abort();
+  return target;
+}
+
 export async function downloadFromUrl(url, movieId, variantId, filename) {
   const libraryDir = getLibraryDir();
   const outPath = path.join(libraryDir, filename);
@@ -40,6 +52,7 @@ export async function downloadFromUrl(url, movieId, variantId, filename) {
     downloadUrl = directDownloadUrl(gdriveId);
   }
 
+  const controller = new AbortController();
   const progress = {
     movieId,
     variantId,
@@ -47,12 +60,17 @@ export async function downloadFromUrl(url, movieId, variantId, filename) {
     bytes: 0,
     done: false,
     error: null,
+    cancelled: false,
+    controller,
   };
   activeDownloads.set(movieId, progress);
   setVariantStatus(movieId, variantId, "downloading", "");
 
   try {
-    const res = await fetch(downloadUrl, { redirect: "follow" });
+    const res = await fetch(downloadUrl, {
+      redirect: "follow",
+      signal: controller.signal,
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const totalBytes = parseInt(res.headers.get("content-length") || "0", 10);
@@ -65,7 +83,7 @@ export async function downloadFromUrl(url, movieId, variantId, filename) {
       progress.bytes += chunk.length;
     });
 
-    await pipeline(body, fileStream);
+    await pipeline(body, fileStream, { signal: controller.signal });
 
     progress.done = true;
     setVariantStatus(movieId, variantId, "offline", outPath);
@@ -75,12 +93,16 @@ export async function downloadFromUrl(url, movieId, variantId, filename) {
       `Downloaded ${filename} (${(progress.bytes / 1e6).toFixed(1)} MB)`,
     );
   } catch (err) {
-    progress.error = err.message;
+    const wasCancelled = progress.cancelled || err.name === "AbortError";
+    progress.error = wasCancelled ? "cancelled" : err.message;
     setVariantStatus(movieId, variantId, "available", "");
+    await fs.promises.rm(outPath, { force: true }).catch(() => {});
     auditLog(
-      "error",
+      wasCancelled ? "warn" : "error",
       "CINEMA",
-      `Download failed for ${filename}: ${err.message}`,
+      wasCancelled
+        ? `Download cancelled for ${filename}`
+        : `Download failed for ${filename}: ${err.message}`,
     );
   } finally {
     setTimeout(() => activeDownloads.delete(movieId), 30000);

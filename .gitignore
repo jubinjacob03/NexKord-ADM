@@ -10,6 +10,18 @@ package-lock.json
 # Data directories
 data/
 
+# Generated asset directories. assets/akinator is tracked and read at runtime,
+# so only the generated subtrees are ignored.
+assets/emoji-backup/
+assets/server-emojis/
+assets/cinema/
+
+# Backups of secret-bearing files
+*.bak
+
+# Untracked sibling project
+new-idea/
+
 # IDEs and OS files
 .vscode/
 .idea/

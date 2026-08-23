@@ -285,9 +285,7 @@ async function startStream({
     )
     .catch(() => {});
 
-  await panelManager.refreshPanel();
   await streamer.play(playInput, playOptions);
-  await panelManager.refreshPanel();
 }
 
 export async function handleCommand(
@@ -567,7 +565,6 @@ async function dispatch({
         ),
       );
 
-      await panelManager.refreshPanel();
       break;
     }
 
@@ -784,7 +781,6 @@ async function dispatch({
             ui.subtext(`${ui.smallCaps("id")} \`${id}\``),
           ),
         );
-        await panelManager.refreshPanel();
       } else {
         await message.reply(
           ui.stack(
@@ -841,7 +837,6 @@ async function dispatch({
           ),
         ),
       );
-      await panelManager.refreshPanel();
       break;
     }
 
@@ -905,7 +900,6 @@ async function dispatch({
     case "stop": {
       await streamer.stop();
       await message.reply(ui.stack(ui.heading("stream stopped", "⏹️")));
-      await panelManager.refreshPanel();
       break;
     }
 
@@ -928,14 +922,12 @@ async function dispatch({
           ui.subtext(ui.channelMention(vc.channelId)),
         ),
       );
-      await panelManager.refreshPanel();
       break;
     }
 
     case "leave": {
       await streamer.leave();
       await message.reply(ui.stack(ui.heading("left voice", "🚪")));
-      await panelManager.refreshPanel();
       break;
     }
 

@@ -35,7 +35,4 @@ export class PanelManager {
       );
     } catch {}
   }
-
-  async initPanel() {}
-  async refreshPanel() {}
 }

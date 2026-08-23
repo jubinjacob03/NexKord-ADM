@@ -17,10 +17,11 @@ import { initScreens, getScreens, getScreen } from "./screens.js";
 import {
   loadSchedule,
   addShow,
-  cancelShow,
   getUpcoming,
-  getShow,
   setShowMessageId,
+  getDueShows,
+  setShowStatus,
+  expireStaleShows,
 } from "./schedule.js";
 import {
   loadLibrary,
@@ -30,9 +31,13 @@ import {
   getMovie,
   getAllMovies,
   getMovieByTmdbId,
-  formatVariantList,
+  getBestVariant,
 } from "./library.js";
-import { downloadFromUrl, getDownloadProgress } from "./downloader.js";
+import {
+  downloadFromUrl,
+  getDownloadProgress,
+  cancelDownload,
+} from "./downloader.js";
 import { searchAll } from "./tmdb.js";
 import { eReply } from "../../utils/embed.js";
 import { auditLog } from "../../utils/logger.js";
@@ -106,6 +111,64 @@ async function postAnnouncement(show) {
   }
 }
 
+const SHOWTIME_TICK_MS = 30_000;
+const SHOWTIME_GRACE_SECONDS = 900;
+let showtimeTimer = null;
+
+function resolvePlaybackCommand(show) {
+  const movie = show.tmdbId ? getMovieByTmdbId(show.tmdbId) : null;
+  if (!movie) return `movie ${show.title}`;
+
+  const variant = getBestVariant(movie.id);
+  if (variant?.filePath) return `play ${variant.filePath}`;
+  return `movie ${movie.title || show.title}`;
+}
+
+async function runShowtimeTick() {
+  const due = getDueShows(SHOWTIME_GRACE_SECONDS);
+
+  for (const show of due) {
+    const screen = getScreen(show.screenId);
+    if (!screen) {
+      setShowStatus(show.id, "failed");
+      auditLog(
+        "error",
+        "CINEMA",
+        `Showtime for "${show.title}" skipped: screen ${show.screenId} not configured`,
+      );
+      continue;
+    }
+
+    setShowStatus(show.id, "live");
+    try {
+      await sendToScreen(show.screenId, resolvePlaybackCommand(show));
+      auditLog(
+        "info",
+        "CINEMA",
+        `Showtime fired: "${show.title}" on ${screen.name}`,
+      );
+    } catch (err) {
+      setShowStatus(show.id, "failed");
+      auditLog(
+        "error",
+        "CINEMA",
+        `Showtime failed for "${show.title}": ${err.message}`,
+      );
+    }
+  }
+
+  const missed = expireStaleShows(SHOWTIME_GRACE_SECONDS);
+  for (const show of missed) {
+    auditLog(
+      "warn",
+      "CINEMA",
+      `Show "${show.title}" missed its slot by more than ${SHOWTIME_GRACE_SECONDS}s`,
+    );
+  }
+
+  if (due.length || missed.length) await refreshDashboard();
+}
+
 export async function initCinema(client) {
   admClient = client;
   initScreens();
@@ -135,7 +198,18 @@ export async function initCinema(client) {
   }
 
   await refreshDashboard();
-  console.log("[CINEMA] Cinema system initialised.");
+
+  if (showtimeTimer) clearInterval(showtimeTimer);
+  showtimeTimer = setInterval(() => {
+    runShowtimeTick().catch((err) =>
+      console.error(`[CINEMA] Showtime tick failed: ${err.message}`),
+    );
+  }, SHOWTIME_TICK_MS);
+  showtimeTimer.unref?.();
+
+  console.log(
+    `[CINEMA] Cinema system initialised (showtime tick every ${SHOWTIME_TICK_MS / 1000}s).`,
+  );
 }
 
 export async function handleCinemaButton(interaction) {
@@ -336,12 +410,21 @@ export async function handleCinemaButton(interaction) {
         );
         return true;
       }
+      const cancelled = cancelDownload(progress.movieId);
+      if (!cancelled) {
+        await interaction.reply(
+          eReply("Nothing to Cancel", "That download already finished."),
+        );
+        return true;
+      }
+
       await interaction.reply(
         eReply(
-          "Cancel",
-          `Current download: **${progress.filename}**\n-# Cancellation not yet implemented — stop the process manually.`,
+          "Cancelled",
+          `Stopped downloading **${cancelled.filename}** and removed the partial file.`,
         ),
       );
+      await refreshDashboard();
       return true;
     }
 
@@ -526,157 +609,6 @@ export async function handleCinemaModal(interaction) {
       return true;
     }
 
-    case "cinema:schedule_modal": {
-      const title = interaction.fields
-        .getTextInputValue("cinema:sched_title")
-        .trim();
-      const timeStr = interaction.fields
-        .getTextInputValue("cinema:sched_time")
-        .trim();
-      const screenNum = parseInt(
-        interaction.fields.getTextInputValue("cinema:sched_screen").trim(),
-        10,
-      );
-
-      const showtimeUnix = parseTime(timeStr);
-      if (!showtimeUnix) {
-        await interaction.reply(
-          eReply("Invalid Time", "Use format like `8:30 PM` or `20:30`."),
-        );
-        return true;
-      }
-
-      const screen = getScreen(screenNum);
-      if (!screen) {
-        await interaction.reply(
-          eReply("Invalid Screen", `Screen ${screenNum} not found.`),
-        );
-        return true;
-      }
-
-      const show = addShow({ title, showtimeUnix, screenId: screen.id });
-      await interaction.reply(
-        eReply(
-          "Scheduled",
-          `**${title}** scheduled for <t:${showtimeUnix}:F> on **${screen.name}**.`,
-        ),
-      );
-      await postAnnouncement(show);
-      await refreshDashboard();
-      return true;
-    }
-
-    case "cinema:picked_schedule_modal": {
-      const picked = pickCache.get(interaction.user.id);
-      if (!picked) {
-        await interaction.reply(
-          eReply("Expired", "Selection expired. Search again."),
-        );
-        return true;
-      }
-      pickCache.delete(interaction.user.id);
-
-      const timeStr = interaction.fields
-        .getTextInputValue("cinema:picked_time")
-        .trim();
-      const screenNum = parseInt(
-        interaction.fields.getTextInputValue("cinema:picked_screen").trim(),
-        10,
-      );
-
-      const showtimeUnix = parseTime(timeStr);
-      if (!showtimeUnix) {
-        await interaction.reply(
-          eReply("Invalid Time", "Use format like `8:30 PM` or `20:30`."),
-        );
-        return true;
-      }
-
-      const screen = getScreen(screenNum);
-      if (!screen) {
-        await interaction.reply(
-          eReply("Invalid Screen", `Screen ${screenNum} not found.`),
-        );
-        return true;
-      }
-
-      const show = addShow({
-        title: picked.title,
-        year: picked.year,
-        overview: picked.overview,
-        posterUrl: picked.poster,
-        showtimeUnix,
-        screenId: screen.id,
-        tmdbId: picked.id,
-        mediaType: picked.type,
-      });
-
-      await interaction.reply(
-        eReply(
-          "Scheduled",
-          `**${picked.title}** scheduled for <t:${showtimeUnix}:F> on **${screen.name}**.`,
-        ),
-      );
-      await postAnnouncement(show);
-      await refreshDashboard();
-      return true;
-    }
-
-    case "cinema:download_modal": {
-      const title = interaction.fields
-        .getTextInputValue("cinema:dl_title")
-        .trim();
-      const screenNum = parseInt(
-        interaction.fields.getTextInputValue("cinema:dl_screen").trim(),
-        10,
-      );
-
-      const screen = getScreen(screenNum);
-      if (!screen) {
-        await interaction.reply(
-          eReply("Invalid Screen", `Screen ${screenNum} not found.`),
-        );
-        return true;
-      }
-
-      await sendToScreen(screen.id, `prepare ${title}`);
-      await interaction.reply(
-        eReply(
-          "Downloading",
-          `Sent prefetch for **${title}** to **${screen.name}**.`,
-        ),
-      );
-      return true;
-    }
-
-    case "cinema:play_modal": {
-      const input = interaction.fields
-        .getTextInputValue("cinema:play_input")
-        .trim();
-      const screenNum = parseInt(
-        interaction.fields.getTextInputValue("cinema:play_screen").trim(),
-        10,
-      );
-
-      const screen = getScreen(screenNum);
-      if (!screen) {
-        await interaction.reply(
-          eReply("Invalid Screen", `Screen ${screenNum} not found.`),
-        );
-        return true;
-      }
-
-      const looksLikeUrl = /^(https?:\/\/|\/|[a-zA-Z]:\\)/.test(input);
-      await sendToScreen(
-        screen.id,
-        looksLikeUrl ? `play ${input}` : `movie ${input}`,
-      );
-      await interaction.reply(
-        eReply("Playing", `Sent to **${screen.name}**: ${input}`),
-      );
-      return true;
-    }
-
     case "cinema:add_movie_modal": {
       const title = interaction.fields
         .getTextInputValue("cinema:add_title")
@@ -718,47 +650,6 @@ export async function handleCinemaModal(interaction) {
         eReply(
           "Adding & Downloading",
           `**${movie.title}** ${movie.year ? `(${movie.year})` : ""}\n${quality} · \`${filename}\`\nDownloading in background.`,
-        ),
-      );
-      return true;
-    }
-
-    case "cinema:upload_link_modal": {
-      const title = interaction.fields
-        .getTextInputValue("cinema:ul_title")
-        .trim();
-      const url = interaction.fields.getTextInputValue("cinema:ul_url").trim();
-      const quality = interaction.fields
-        .getTextInputValue("cinema:ul_quality")
-        .trim();
-      const filename = interaction.fields
-        .getTextInputValue("cinema:ul_filename")
-        .trim();
-
-      loadLibrary();
-      const matches = findMovies(title);
-      if (matches.length === 0) {
-        await interaction.reply(
-          eReply("Not Found", `"${title}" not in library. Add it first.`),
-        );
-        return true;
-      }
-
-      const movie = matches[0];
-      const variant = addVariant(movie.id, {
-        quality,
-        source: "GDrive",
-        sourceUrl: url,
-        status: "available",
-      });
-
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-      downloadFromUrl(url, movie.id, variant.id, filename);
-      await interaction.editReply(
-        eReply(
-          "Downloading",
-          `**${movie.title}** ${quality}\nFile: \`${filename}\`\nThis runs in the background.`,
         ),
       );
       return true;

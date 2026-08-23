@@ -69,6 +69,38 @@ export function getUpcoming(screenId) {
   );
 }
 
+export function getDueShows(graceSeconds = 900) {
+  const now = Math.floor(Date.now() / 1000);
+  return schedule.filter(
+    (s) =>
+      s.status === "scheduled" &&
+      s.showtimeUnix <= now &&
+      now - s.showtimeUnix <= graceSeconds,
+  );
+}
+
+export function setShowStatus(id, status) {
+  const show = schedule.find((s) => s.id === id);
+  if (!show) return null;
+  show.status = status;
+  save();
+  return show;
+}
+
+export function expireStaleShows(graceSeconds = 900) {
+  const now = Math.floor(Date.now() / 1000);
+  const stale = schedule.filter(
+    (s) => s.status === "scheduled" && now - s.showtimeUnix > graceSeconds,
+  );
+  if (stale.length) {
+    stale.forEach((s) => {
+      s.status = "missed";
+    });
+    save();
+  }
+  return stale;
+}
+
 export function getAllShows() {
   return schedule;
 }

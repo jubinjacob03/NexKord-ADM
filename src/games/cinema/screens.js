@@ -39,7 +39,3 @@ export function getScreens() {
 export function getScreen(id) {
   return screens.find((s) => s.id === id) || null;
 }
-
-export function screenChoices() {
-  return screens.map((s) => ({ label: s.name, value: String(s.id) }));
-}

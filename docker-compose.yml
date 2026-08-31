@@ -6,39 +6,93 @@ services:
     image: nexkord-adm:latest
     container_name: nexkord-adm
     restart: unless-stopped
-    depends_on:
-      - warp
-    env_file:
-      - .env
+    init: true
+    environment:
+      DISCORD_TOKEN: "${DISCORD_TOKEN:-}"
+      CLIENT_ID: "${CLIENT_ID:-}"
+      GUILD_ID: "${GUILD_ID:-}"
+      AKINATOR_CHANNEL_ID: "${AKINATOR_CHANNEL_ID:-}"
+      AKINATOR_PROXY: "${AKINATOR_PROXY:-}"
+      AKINATOR_REQUEST_TIMEOUT_MS: "${AKINATOR_REQUEST_TIMEOUT_MS:-}"
+      TMDB_API_KEY: "${TMDB_API_KEY:-}"
+      CINEMA_DASHBOARD_CHANNEL_ID: "${CINEMA_DASHBOARD_CHANNEL_ID:-}"
+      CINEMA_GUILD_ID: "${CINEMA_GUILD_ID:-}"
+      CINEMA_ANNOUNCEMENT_CHANNEL_ID: "${CINEMA_ANNOUNCEMENT_CHANNEL_ID:-}"
+      CINEMA_SHOWTIMES_CHANNEL_ID: "${CINEMA_SHOWTIMES_CHANNEL_ID:-}"
+      CINEMA_MODERATOR_USER_IDS: "${CINEMA_MODERATOR_USER_IDS:-}"
+      CINEMA_MODERATOR_ROLE_IDS: "${CINEMA_MODERATOR_ROLE_IDS:-}"
+      CINEMA_DOWNLOAD_ALLOWED_HOSTS: "${CINEMA_DOWNLOAD_ALLOWED_HOSTS:-}"
+      CINEMA_DOWNLOAD_TIMEOUT_MS: "${CINEMA_DOWNLOAD_TIMEOUT_MS:-}"
+      CINEMA_MAX_DOWNLOAD_MB: "${CINEMA_MAX_DOWNLOAD_MB:-}"
+      CINEMA_SCREEN_1_NAME: "${CINEMA_SCREEN_1_NAME:-}"
+      CINEMA_SCREEN_1_CHANNEL_ID: "${CINEMA_SCREEN_1_CHANNEL_ID:-}"
+      CINEMA_SCREEN_1_VOICE_CHANNEL_ID: "${CINEMA_SCREEN_1_VOICE_CHANNEL_ID:-}"
+      CINEMA_SCREEN_1_PREFIX: "${CINEMA_SCREEN_1_PREFIX:-}"
+      CINEMA_SCREEN_2_NAME: "${CINEMA_SCREEN_2_NAME:-}"
+      CINEMA_SCREEN_2_CHANNEL_ID: "${CINEMA_SCREEN_2_CHANNEL_ID:-}"
+      CINEMA_SCREEN_2_VOICE_CHANNEL_ID: "${CINEMA_SCREEN_2_VOICE_CHANNEL_ID:-}"
+      CINEMA_SCREEN_2_PREFIX: "${CINEMA_SCREEN_2_PREFIX:-}"
+      CINEMA_SCREEN_3_NAME: "${CINEMA_SCREEN_3_NAME:-}"
+      CINEMA_SCREEN_3_CHANNEL_ID: "${CINEMA_SCREEN_3_CHANNEL_ID:-}"
+      CINEMA_SCREEN_3_VOICE_CHANNEL_ID: "${CINEMA_SCREEN_3_VOICE_CHANNEL_ID:-}"
+      CINEMA_SCREEN_3_PREFIX: "${CINEMA_SCREEN_3_PREFIX:-}"
+      CINEMA_SCREEN_4_NAME: "${CINEMA_SCREEN_4_NAME:-}"
+      CINEMA_SCREEN_4_CHANNEL_ID: "${CINEMA_SCREEN_4_CHANNEL_ID:-}"
+      CINEMA_SCREEN_4_VOICE_CHANNEL_ID: "${CINEMA_SCREEN_4_VOICE_CHANNEL_ID:-}"
+      CINEMA_SCREEN_4_PREFIX: "${CINEMA_SCREEN_4_PREFIX:-}"
+      CINEMA_SCREEN_5_NAME: "${CINEMA_SCREEN_5_NAME:-}"
+      CINEMA_SCREEN_5_CHANNEL_ID: "${CINEMA_SCREEN_5_CHANNEL_ID:-}"
+      CINEMA_SCREEN_5_VOICE_CHANNEL_ID: "${CINEMA_SCREEN_5_VOICE_CHANNEL_ID:-}"
+      CINEMA_SCREEN_5_PREFIX: "${CINEMA_SCREEN_5_PREFIX:-}"
+      CINEMA_SCREEN_6_NAME: "${CINEMA_SCREEN_6_NAME:-}"
+      CINEMA_SCREEN_6_CHANNEL_ID: "${CINEMA_SCREEN_6_CHANNEL_ID:-}"
+      CINEMA_SCREEN_6_VOICE_CHANNEL_ID: "${CINEMA_SCREEN_6_VOICE_CHANNEL_ID:-}"
+      CINEMA_SCREEN_6_PREFIX: "${CINEMA_SCREEN_6_PREFIX:-}"
+      CINEMA_SCREEN_7_NAME: "${CINEMA_SCREEN_7_NAME:-}"
+      CINEMA_SCREEN_7_CHANNEL_ID: "${CINEMA_SCREEN_7_CHANNEL_ID:-}"
+      CINEMA_SCREEN_7_VOICE_CHANNEL_ID: "${CINEMA_SCREEN_7_VOICE_CHANNEL_ID:-}"
+      CINEMA_SCREEN_7_PREFIX: "${CINEMA_SCREEN_7_PREFIX:-}"
+      CINEMA_SCREEN_8_NAME: "${CINEMA_SCREEN_8_NAME:-}"
+      CINEMA_SCREEN_8_CHANNEL_ID: "${CINEMA_SCREEN_8_CHANNEL_ID:-}"
+      CINEMA_SCREEN_8_VOICE_CHANNEL_ID: "${CINEMA_SCREEN_8_VOICE_CHANNEL_ID:-}"
+      CINEMA_SCREEN_8_PREFIX: "${CINEMA_SCREEN_8_PREFIX:-}"
+      CINEMA_SCREEN_9_NAME: "${CINEMA_SCREEN_9_NAME:-}"
+      CINEMA_SCREEN_9_CHANNEL_ID: "${CINEMA_SCREEN_9_CHANNEL_ID:-}"
+      CINEMA_SCREEN_9_VOICE_CHANNEL_ID: "${CINEMA_SCREEN_9_VOICE_CHANNEL_ID:-}"
+      CINEMA_SCREEN_9_PREFIX: "${CINEMA_SCREEN_9_PREFIX:-}"
+      CINEMA_SCREEN_10_NAME: "${CINEMA_SCREEN_10_NAME:-}"
+      CINEMA_SCREEN_10_CHANNEL_ID: "${CINEMA_SCREEN_10_CHANNEL_ID:-}"
+      CINEMA_SCREEN_10_VOICE_CHANNEL_ID: "${CINEMA_SCREEN_10_VOICE_CHANNEL_ID:-}"
+      CINEMA_SCREEN_10_PREFIX: "${CINEMA_SCREEN_10_PREFIX:-}"
     dns:
       - 1.1.1.1
       - 8.8.8.8
-    environment:
-      - NODE_OPTIONS=--max-old-space-size=1024
     volumes:
-      - ./logs:/usr/src/app/logs
+      - type: bind
+        source: ./data
+        target: /usr/src/app/data
+        bind:
+          create_host_path: false
+      - nexkord-logs:/usr/src/app/logs
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-    deploy:
-      resources:
-        limits:
-          memory: 1536M
-          cpus: "0.9"
-        reservations:
-          memory: 512M
-          cpus: "0.2"
+    mem_limit: 1536m
+    mem_reservation: 512m
+    cpus: 0.9
 
   warp:
-    image: backplane/wireproxy:latest
+    profiles:
+      - warp
+    image: backplane/wireproxy:20260528@sha256:252141ad57095c327bf4b020a009892a73279dc367a8807e3c9e5b599bf56025
     container_name: warp
     restart: unless-stopped
     volumes:
       - ./data/warp/wireproxy.conf:/etc/wireproxy/config:ro
-    deploy:
-      resources:
-        limits:
-          memory: 64M
-          cpus: "0.3"
+    mem_limit: 64m
+    cpus: 0.3
+
+volumes:
+  nexkord-logs:

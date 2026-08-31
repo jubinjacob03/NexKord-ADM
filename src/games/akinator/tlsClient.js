@@ -11,6 +11,7 @@ import { auditLog } from "../../utils/logger.js";
 let client = null;
 /** @type {Promise<any> | null} */
 let initing = null;
+let closing = null;
 
 /**
  * Returns the shared CycleTLS client, launching its subprocess lazily on first
@@ -18,20 +19,22 @@ let initing = null;
  * @returns {Promise<import('cycletls').CycleTLSClient>}
  */
 export async function getClient() {
+  if (closing) await closing;
   if (client) return client;
   if (initing) return initing;
 
-  initing = (async () => {
-    const c = await initCycleTLS({ timeout: 60000 });
-    client = c;
+  const initialization = (async () => {
+    const created = await initCycleTLS({ timeout: 60000 });
+    client = created;
     auditLog("info", "AKINATOR", "TLS client (cycletls) started.");
-    return c;
+    return created;
   })();
+  initing = initialization;
 
   try {
-    return await initing;
+    return await initialization;
   } finally {
-    initing = null;
+    if (initing === initialization) initing = null;
   }
 }
 
@@ -41,13 +44,23 @@ export async function getClient() {
  * @returns {Promise<void>}
  */
 export async function closeClient() {
-  if (!client) return;
-  const c = client;
-  client = null;
+  if (closing) return closing;
+  const operation = (async () => {
+    const initialized = initing ? await initing.catch(() => null) : null;
+    const active = client || initialized;
+    client = null;
+    if (!active) return;
+    try {
+      await active.exit();
+      auditLog("info", "AKINATOR", "TLS client closed (idle).");
+    } catch (error) {
+      auditLog("warn", "AKINATOR", `TLS client close failed: ${error.message}`);
+    }
+  })();
+  closing = operation;
   try {
-    await c.exit();
-    auditLog("info", "AKINATOR", "TLS client closed (idle).");
-  } catch (e) {
-    auditLog("warn", "AKINATOR", `TLS client close failed: ${e.message}`);
+    await operation;
+  } finally {
+    if (closing === operation) closing = null;
   }
 }

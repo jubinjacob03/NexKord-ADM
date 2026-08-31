@@ -24,6 +24,7 @@ const FORCE_CLEAR = process.argv.includes("--clear");
 
   if (missing.length) {
     console.error(`[deploy] Missing required env: ${missing.join(", ")}`);
+    process.exitCode = 1;
     return;
   }
 
@@ -45,5 +46,6 @@ const FORCE_CLEAR = process.argv.includes("--clear");
     console.log(`[deploy] Guild now has ${data.length} command(s).`);
   } catch (error) {
     console.error("[deploy] Registration failed:", error?.message ?? error);
+    process.exitCode = 1;
   }
 })();

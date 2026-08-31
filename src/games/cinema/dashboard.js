@@ -12,6 +12,7 @@ import {
 } from "discord.js";
 import { icon, emojiObj } from "../../utils/icons.js";
 import { getScreens } from "./screens.js";
+import { qualityRank, getBestVariant } from "./library.js";
 
 export const BTN = {
   SEARCH: "cinema:search",
@@ -22,6 +23,26 @@ export const BTN = {
   LIBRARY: "cinema:library",
   REFRESH: "cinema:refresh",
 };
+
+function boundedText(value, maximum, fallback = "") {
+  const text = String(value || fallback).trim();
+  if (text.length <= maximum) return text;
+  return `${text.slice(0, Math.max(0, maximum - 1)).trimEnd()}…`;
+}
+
+function buttonLabel(value, fallback = "Screen") {
+  return boundedText(value, 80, fallback) || fallback;
+}
+
+function sectionContent(title, year, overview) {
+  const safeTitle = boundedText(title, 180, "Untitled");
+  const titleLine = year
+    ? `**${safeTitle}** (${boundedText(year, 4)})`
+    : `**${safeTitle}**`;
+  const heading = `${icon("CINEMA_FILM")} ${titleLine}`;
+  const safeOverview = boundedText(overview, 3900 - heading.length);
+  return safeOverview ? `${heading}\n\n${safeOverview}` : heading;
+}
 
 function formatAmPm(unix) {
   const d = new Date(unix * 1000);
@@ -65,7 +86,7 @@ export function buildModDashboard(shows) {
           new ButtonBuilder()
             .setCustomId(`cinema:screen_join_${s.id}`)
             .setEmoji(emojiObj("CINEMA_SCREEN"))
-            .setLabel(s.name)
+            .setLabel(buttonLabel(s.name))
             .setStyle(ButtonStyle.Secondary),
         ),
     );
@@ -83,7 +104,9 @@ export function buildModDashboard(shows) {
       .slice(0, 8)
       .map((s, i) => {
         const screen = screens.find((sc) => sc.id === s.screenId);
-        return `**${i + 1}.** ${s.title} — ${formatAmPm(s.showtimeUnix)} · ${screen?.name || "?"}`;
+        const title = boundedText(s.title, 140, "Untitled");
+        const screenName = boundedText(screen?.name, 50, "?");
+        return `**${i + 1}.** ${title} — ${formatAmPm(s.showtimeUnix)} · ${screenName}`;
       })
       .join("\n");
     container.addTextDisplayComponents(
@@ -175,7 +198,7 @@ export function buildSearchResults(results) {
   );
 
   const rows = [];
-  for (let i = 0; i < Math.min(results.length, 5); i++) {
+  for (let i = 0; i < Math.min(results.length, 4); i++) {
     const r = results[i];
     const label = r.year ? `${r.title} (${r.year})` : r.title;
     const truncated = label.length > 80 ? `${label.slice(0, 77)}...` : label;
@@ -232,7 +255,7 @@ export function buildSearchResults(results) {
   const ts = Math.floor(Date.now() / 1000);
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `-# Pick a result to schedule · <t:${ts}:f>`,
+      `-# Pick a result to add · <t:${ts}:f>`,
     ),
   );
 
@@ -249,14 +272,10 @@ export function buildShowtimePoster({
   posterUrl,
   showtimeUnix,
   screenName,
-  voiceChannelId,
 }) {
   const container = new ContainerBuilder().setAccentColor(0xff0033);
 
-  const titleLine = year ? `**${title}** (${year})` : `**${title}**`;
-  const sectionText = overview
-    ? `${icon("CINEMA_FILM")} ${titleLine}\n\n${overview}`
-    : `${icon("CINEMA_FILM")} ${titleLine}`;
+  const sectionText = sectionContent(title, year, overview);
 
   if (posterUrl) {
     try {
@@ -299,12 +318,11 @@ export function buildShowtimePoster({
       .setStyle(ButtonStyle.Secondary),
   );
 
-  const vcLabel = voiceChannelId ? "Lobby" : "TBA";
   const infoRow2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`cinema:poster_screen_${Date.now()}`)
       .setEmoji(emojiObj("CINEMA_SCREEN"))
-      .setLabel(screenName || "Screen")
+      .setLabel(buttonLabel(screenName))
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId(`cinema:poster_brand_${Date.now()}`)
@@ -330,20 +348,10 @@ export function buildShowtimePoster({
   return { components: [container], flags: MessageFlags.IsComponentsV2 };
 }
 
-function qualityRank(q) {
-  const map = { "4k": 4, "2160p": 4, "1080p": 3, "720p": 2, "480p": 1 };
-  return map[q?.toLowerCase()] || 0;
-}
-
 export function buildMovieCard(movie) {
   const container = new ContainerBuilder().setAccentColor(0xff0033);
 
-  const titleLine = movie.year
-    ? `**${movie.title}** (${movie.year})`
-    : `**${movie.title}**`;
-  const sectionText = movie.overview
-    ? `${icon("CINEMA_FILM")} ${titleLine}\n\n${movie.overview}`
-    : `${icon("CINEMA_FILM")} ${titleLine}`;
+  const sectionText = sectionContent(movie.title, movie.year, movie.overview);
 
   if (movie.posterUrl) {
     try {
@@ -371,8 +379,9 @@ export function buildMovieCard(movie) {
   );
 
   if (movie.variants.length > 0) {
-    const variantLines = movie.variants
+    const variantLines = [...movie.variants]
       .sort((a, b) => qualityRank(b.quality) - qualityRank(a.quality))
+      .slice(0, 20)
       .map((v) => {
         const statusIcon =
           v.status === "offline"
@@ -382,7 +391,7 @@ export function buildMovieCard(movie) {
               : v.status === "downloading"
                 ? "🔵"
                 : "⚫";
-        return `${statusIcon} **${v.quality}** · ${v.source} · ${v.status}`;
+        return `${statusIcon} **${boundedText(v.quality, 30, "unknown")}** · ${boundedText(v.source, 50, "Unknown")} · ${boundedText(v.status, 30, "available")}`;
       })
       .join("\n");
     container.addTextDisplayComponents(
@@ -400,24 +409,30 @@ export function buildMovieCard(movie) {
       .setSpacing(SeparatorSpacingSize.Small),
   );
 
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`cinema:card_upload_${movie.id}`)
-      .setEmoji(emojiObj("CINEMA_TICKET"))
-      .setLabel("Upload Link")
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(`cinema:card_download_${movie.id}`)
-      .setEmoji(emojiObj("CINEMA_CLAPPER"))
-      .setLabel("Download")
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(`cinema:card_schedule_${movie.id}`)
-      .setEmoji(emojiObj("CINEMA_CALENDAR"))
-      .setLabel("Schedule")
-      .setStyle(ButtonStyle.Secondary),
-  );
-  container.addActionRowComponents(row);
+  const uploadId = `cinema:card_upload_${movie.id}`;
+  const scheduleId = `cinema:card_schedule_${movie.id}`;
+  if (uploadId.length <= 100 && scheduleId.length <= 100) {
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(uploadId)
+        .setEmoji(emojiObj("CINEMA_TICKET"))
+        .setLabel("Upload Link")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(scheduleId)
+        .setEmoji(emojiObj("CINEMA_CALENDAR"))
+        .setLabel("Schedule")
+        .setDisabled(!getBestVariant(movie.id))
+        .setStyle(ButtonStyle.Secondary),
+    );
+    container.addActionRowComponents(row);
+  } else {
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        "-# Controls unavailable for this legacy library entry.",
+      ),
+    );
+  }
 
   container.addSeparatorComponents(
     new SeparatorBuilder()
@@ -434,4 +449,87 @@ export function buildMovieCard(movie) {
     components: [container],
     flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
   };
+}
+
+export function buildShowtimesBoard(shows) {
+  const screens = getScreens();
+  const container = new ContainerBuilder().setAccentColor(0xff0033);
+
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      `${icon("CINEMA_FILM")} **NexKord Cinema** — Showtimes`,
+    ),
+  );
+
+  container.addSeparatorComponents(
+    new SeparatorBuilder()
+      .setDivider(true)
+      .setSpacing(SeparatorSpacingSize.Large),
+  );
+
+  if (shows.length > 0) {
+    const visibleShows = shows.slice(0, 10);
+    const list = visibleShows
+      .map((s, i) => {
+        const screen = screens.find((sc) => sc.id === s.screenId);
+        const title = boundedText(s.title, 180, "Untitled");
+        const titleLine = s.year
+          ? `${title} (${boundedText(s.year, 4)})`
+          : title;
+        const screenName = boundedText(screen?.name, 60, "Screen");
+        return (
+          `**${i + 1}. ${titleLine}**\n` +
+          `-# ${icon("CINEMA_CLOCK")} <t:${s.showtimeUnix}:f> · <t:${s.showtimeUnix}:R> · ${screenName}`
+        );
+      })
+      .join("\n\n");
+    const omitted = shows.length - visibleShows.length;
+    const boardText =
+      omitted > 0 ? `${list}\n\n-# +${omitted} more showtimes` : list;
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(boundedText(boardText, 3900)),
+    );
+  } else {
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        "-# No showtimes scheduled yet — check back soon!",
+      ),
+    );
+  }
+
+  if (screens.length > 0) {
+    container.addSeparatorComponents(
+      new SeparatorBuilder()
+        .setDivider(true)
+        .setSpacing(SeparatorSpacingSize.Small),
+    );
+    for (let index = 0; index < Math.min(screens.length, 10); index += 5) {
+      container.addActionRowComponents(
+        new ActionRowBuilder().addComponents(
+          ...screens.slice(index, index + 5).map((s) =>
+            new ButtonBuilder()
+              .setCustomId(`cinema:screen_join_${s.id}`)
+              .setEmoji(emojiObj("CINEMA_SCREEN"))
+              .setLabel(buttonLabel(`Join ${s.name}`))
+              .setStyle(ButtonStyle.Secondary),
+          ),
+        ),
+      );
+    }
+  }
+
+  container.addSeparatorComponents(
+    new SeparatorBuilder()
+      .setDivider(true)
+      .setSpacing(SeparatorSpacingSize.Small),
+  );
+
+  const ts = Math.floor(Date.now() / 1000);
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      `-# NexKord Cinema · updated <t:${ts}:R>`,
+    ),
+  );
+
+  return { components: [container], flags: MessageFlags.IsComponentsV2 };
 }

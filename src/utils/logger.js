@@ -3,6 +3,7 @@ import path from "path";
 import util from "util";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
+import { redactUrl } from "./network.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -51,12 +52,32 @@ const shortTime = () => {
   ).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
 };
 
-let auditStream = fs.createWriteStream(path.join(BOT_LOGS_DIR, "audit.log"), {
+const auditStream = fs.createWriteStream(path.join(BOT_LOGS_DIR, "audit.log"), {
   flags: "a",
 });
 
+const redactLogMessage = (value) => {
+  let message = String(value);
+  message = message.replace(/https?:\/\/[^\s<>"'`]+/gi, (url) =>
+    redactUrl(url),
+  );
+  message = message.replace(
+    /(authorization\s*[:=]\s*)(?:"[^"]*"|'[^']*'|(?:bearer|basic)\s+[^\s,;}\]]+|[^\s,;}\]]+)/gi,
+    "$1<redacted>",
+  );
+  for (const secret of [
+    process.env.DISCORD_TOKEN,
+    process.env.SELFBOT_TOKEN,
+    process.env.TMDB_API_KEY,
+  ]) {
+    if (secret && secret.length >= 8)
+      message = message.split(secret).join("<redacted>");
+  }
+  return message;
+};
+
 export const auditLog = (level, action, message) => {
-  const formattedMessage = util.format(message);
+  const formattedMessage = redactLogMessage(util.format(message));
   const upLevel = level.toUpperCase();
 
   const fileLine = `${fullTimestamp()} ${pad(upLevel, 5)} [${action}] ${formattedMessage}`;
@@ -73,7 +94,7 @@ export const initBotLogger = () => {
   global.__botLoggerReady = true;
 
   const write = (level, args) => {
-    let message = util.format(...args);
+    let message = redactLogMessage(util.format(...args));
     const upLevel = level.toUpperCase();
 
     let scope = "APP";

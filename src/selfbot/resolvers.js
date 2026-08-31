@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { redactUrl } from "../utils/network.js";
 
 export const SERVERS = [
   {
@@ -27,6 +28,13 @@ export const SERVERS = [
   },
 ];
 
+function errorSummary(error) {
+  return String(error?.message || "unknown error")
+    .replace(/https?:\/\/[^\s<>"'`]+/gi, (url) => redactUrl(url))
+    .split(/\r?\n/, 1)[0]
+    .slice(0, 500);
+}
+
 export function clampServerIndex(serverIndex) {
   const parsed = Number.parseInt(serverIndex, 10);
   if (!Number.isFinite(parsed)) return 0;
@@ -47,7 +55,7 @@ export function getStreamSource({
   const embedUrl =
     type === "tv" ? server.tv(tmdbId, season, episode) : server.movie(tmdbId);
 
-  console.log(`[RESOLVER] ${server.name} → ${embedUrl}`);
+  console.log(`[RESOLVER] ${server.name} → ${redactUrl(embedUrl)}`);
 
   return { serverName: server.name, serverIndex: index, embedUrl };
 }
@@ -61,7 +69,13 @@ export async function resolvePlayableStream(media, extractor, options = {}) {
   try {
     return await walkProviders(media, extractor, options);
   } finally {
-    await extractor.close().catch(() => {});
+    try {
+      await extractor.close();
+    } catch (error) {
+      console.warn(
+        `[RESOLVER] Extractor cleanup failed: ${errorSummary(error)}`,
+      );
+    }
   }
 }
 
@@ -71,9 +85,11 @@ async function walkProviders(media, extractor, options) {
     options.preferredServerIndex ?? config.defaultServerIndex,
   );
   const timeout = options.timeout ?? config.extractorTimeoutMs;
+  const signal = options.signal;
   const attempts = [];
 
   for (const serverIndex of order) {
+    signal?.throwIfAborted();
     const source = getStreamSource({
       tmdbId,
       type,
@@ -86,9 +102,13 @@ async function walkProviders(media, extractor, options) {
     try {
       extracted = await extractor.extractStreamUrl(source.embedUrl, {
         timeout,
+        signal,
       });
-    } catch (err) {
-      console.warn(`[RESOLVER] ${source.serverName} threw: ${err.message}`);
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason ?? error;
+      console.warn(
+        `[RESOLVER] ${source.serverName} threw: ${errorSummary(error)}`,
+      );
       attempts.push(`${source.serverName} (error)`);
       continue;
     }

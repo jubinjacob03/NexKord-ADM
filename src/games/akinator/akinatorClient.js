@@ -10,12 +10,18 @@ const JA3 =
   "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0";
 /** Akinator subject id for the Characters theme. */
 const SID = "1";
-/** Optional egress proxy (Cloudflare WARP socks5) for a non-datacenter IP. */
-const PROXY = process.env.AKINATOR_PROXY || "";
-const REQUEST_TIMEOUT_MS = Number.parseInt(
-  process.env.AKINATOR_REQUEST_TIMEOUT_MS || "15000",
-  10,
-);
+function readProxy() {
+  return String(process.env.AKINATOR_PROXY || "").trim();
+}
+
+function readRequestTimeoutMs() {
+  const raw = String(process.env.AKINATOR_REQUEST_TIMEOUT_MS || "15000");
+  if (!/^\d+$/.test(raw)) return 15000;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0
+    ? Math.min(parsed, 300000)
+    : 15000;
+}
 
 /**
  * Answer keys mapped to Akinator's numeric answer ids.
@@ -56,20 +62,6 @@ function pick(text, re) {
   return m ? m[1] : null;
 }
 
-function withTimeout(promise, ms, label) {
-  const timeout = Number.isFinite(ms) && ms > 0 ? ms : 15000;
-  let timer = null;
-  const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`${label} timed out after ${timeout}ms.`)),
-      timeout,
-    );
-  });
-  return Promise.race([promise, timeoutPromise]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
-}
-
 /**
  * Drives a single Characters game on en.akinator.com over Akinator's form API
  * using a TLS-impersonating client (CycleTLS), so no browser is needed. Holds
@@ -85,8 +77,13 @@ export class AkinatorClient {
     this.stepLastProposition = "";
     this.completion = null;
     this.question = "";
+    this.disposed = false;
     /** Per-game cookie jar (cf clearance + load-balancer affinity). */
     this.cookies = {};
+  }
+
+  _assertUsable() {
+    if (this.disposed) throw new Error("Akinator game is no longer active.");
   }
 
   /**
@@ -95,14 +92,23 @@ export class AkinatorClient {
    * @returns {void}
    */
   _storeCookies(headers) {
-    const sc = headers?.["set-cookie"] || headers?.["Set-Cookie"];
-    if (!sc) return;
-    for (const c of Array.isArray(sc) ? sc : [sc]) {
-      const pair = String(c).split(";")[0];
-      const i = pair.indexOf("=");
-      if (i > 0)
-        this.cookies[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
+    const setCookie = headers?.["set-cookie"] || headers?.["Set-Cookie"];
+    if (!setCookie) return;
+    for (const cookie of Array.isArray(setCookie) ? setCookie : [setCookie]) {
+      const pair = String(cookie).split(";")[0];
+      const separator = pair.indexOf("=");
+      if (separator > 0) {
+        this.cookies[pair.slice(0, separator).trim()] = pair
+          .slice(separator + 1)
+          .trim();
+      }
     }
+  }
+
+  _commit(response, fields) {
+    this._assertUsable();
+    this._storeCookies(response.headers);
+    Object.assign(this, fields);
   }
 
   /**
@@ -123,32 +129,49 @@ export class AkinatorClient {
    * @returns {Promise<{status:number, body:any, headers:Record<string,any>}>}
    */
   async _api(apiPath, body) {
+    this._assertUsable();
     const client = await getClient();
+    this._assertUsable();
     const cookie = this._cookieHeader();
-    const res = await withTimeout(
-      client(
-        `${BASE}${apiPath}`,
-        {
-          body,
-          ja3: JA3,
-          ...(PROXY ? { proxy: PROXY } : {}),
-          headers: {
-            "content-type": "application/x-www-form-urlencoded",
-            "user-agent": UA,
-            "x-requested-with": "XMLHttpRequest",
-            accept: "application/json, text/javascript, */*; q=0.01",
-            origin: BASE,
-            referer: `${BASE}/game`,
-            ...(cookie ? { cookie } : {}),
-          },
+    const proxy = readProxy();
+    const timeoutMs = readRequestTimeoutMs();
+    const response = await client(
+      `${BASE}${apiPath}`,
+      {
+        body,
+        ja3: JA3,
+        timeout: Math.max(1, Math.ceil(timeoutMs / 1000)),
+        ...(proxy ? { proxy } : {}),
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "user-agent": UA,
+          "x-requested-with": "XMLHttpRequest",
+          accept: "application/json, text/javascript, */*; q=0.01",
+          origin: BASE,
+          referer: `${BASE}/game`,
+          ...(cookie ? { cookie } : {}),
         },
-        "post",
-      ),
-      REQUEST_TIMEOUT_MS,
-      `Akinator request ${apiPath}`,
+      },
+      "post",
     );
-    this._storeCookies(res.headers);
-    return res;
+    this._assertUsable();
+    if (!response || !Number.isInteger(response.status)) {
+      throw new Error("Akinator returned an invalid HTTP response.");
+    }
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`Akinator request failed with HTTP ${response.status}.`);
+    }
+    if (
+      !response.headers ||
+      typeof response.headers !== "object" ||
+      Array.isArray(response.headers)
+    ) {
+      throw new Error("Akinator returned invalid response headers.");
+    }
+    if (response.body === undefined || response.body === null) {
+      throw new Error("Akinator returned an empty response.");
+    }
+    return response;
   }
 
   /**
@@ -160,41 +183,79 @@ export class AkinatorClient {
    * @returns {{type:string, [key:string]: any}}
    * @throws {Error} On a non-JSON body or an expired session.
    */
-  _consume(res) {
+  _consume(response) {
     const data =
-      res.body && typeof res.body === "object" ? res.body : safeJson(res.body);
-    if (!data) {
-      throw new Error(`Akinator API returned non-JSON (status ${res.status}).`);
+      response.body &&
+      typeof response.body === "object" &&
+      !Array.isArray(response.body)
+        ? response.body
+        : safeJson(response.body);
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new Error(
+        `Akinator API returned non-JSON (status ${response.status}).`,
+      );
     }
 
-    this.completion = data.completion ?? this.completion;
-    if (this.completion === "KO - TIMEOUT") {
+    let completion = this.completion;
+    if (data.completion !== undefined && data.completion !== null) {
+      if (typeof data.completion !== "string") {
+        throw new Error("Akinator returned an invalid completion state.");
+      }
+      completion = data.completion;
+    }
+    if (completion === "KO - TIMEOUT") {
       throw new Error("Akinator session timed out.");
     }
 
-    if (data.id_proposition) {
-      this.stepLastProposition = String(this.step);
+    if (Object.hasOwn(data, "id_proposition")) {
+      const name = decodeEntities(data.name_proposition);
+      if (!name) throw new Error("Akinator returned an invalid proposition.");
+      if (
+        data.description_proposition !== undefined &&
+        data.description_proposition !== null &&
+        typeof data.description_proposition !== "string"
+      ) {
+        throw new Error(
+          "Akinator returned an invalid proposition description.",
+        );
+      }
+      const description = decodeEntities(data.description_proposition || "");
+      this._commit(response, {
+        completion,
+        stepLastProposition: String(this.step),
+      });
       return {
         type: "guess",
-        name: decodeEntities(data.name_proposition),
-        description: decodeEntities(data.description_proposition),
+        name,
+        description,
         step: String(this.step),
         progression: this.progression,
       };
     }
 
-    if (this.completion === "SOUNDLIKE") {
+    if (completion === "SOUNDLIKE") {
+      this._commit(response, { completion });
       return { type: "defeat" };
     }
 
-    this.step = parseInt(data.step, 10);
-    this.progression = parseFloat(data.progression);
-    this.question = decodeEntities(data.question);
+    const step = Number(data.step);
+    const progression = Number(data.progression);
+    const question =
+      typeof data.question === "string" ? decodeEntities(data.question) : "";
+    if (!Number.isSafeInteger(step) || step < 0) {
+      throw new Error("Akinator returned an invalid question step.");
+    }
+    if (!Number.isFinite(progression) || progression < 0 || progression > 100) {
+      throw new Error("Akinator returned invalid question progression.");
+    }
+    if (!question) throw new Error("Akinator returned an empty question.");
+
+    this._commit(response, { completion, step, progression, question });
     return {
       type: "question",
-      question: this.question,
-      step: String(this.step),
-      progression: this.progression,
+      question,
+      step: String(step),
+      progression,
     };
   }
 
@@ -205,42 +266,50 @@ export class AkinatorClient {
    * @throws {Error} If Cloudflare blocks or the session cannot be parsed.
    */
   async startGame() {
-    const res = await this._api("/game", `sid=${SID}&cm=${this.childMode}`);
-    const text = String(res.body || "");
-
-    this.session =
+    this._assertUsable();
+    const response = await this._api(
+      "/game",
+      `sid=${SID}&cm=${this.childMode}`,
+    );
+    if (typeof response.body !== "string") {
+      throw new Error("Akinator returned an invalid game page.");
+    }
+    const text = response.body;
+    const gameSession =
       pick(text, /#session'\)\.val\('(.+?)'\)/) ||
       pick(text, /session: '(.+?)'/);
-    this.signature =
+    const signature =
       pick(text, /#signature'\)\.val\('(.+?)'\)/) ||
       pick(text, /signature: '(.+?)'/);
-    const question = pick(
+    const rawQuestion = pick(
       text,
       /<p class="question-text" id="question-label">(.+?)<\/p>/,
     );
+    const question = decodeEntities(rawQuestion);
 
-    if (!this.session || !this.signature || !question) {
-      if (
-        res.status !== 200 ||
-        /just a moment|attention required|cf-chl|error code/i.test(text)
-      ) {
-        throw new Error(`Blocked by Cloudflare (status ${res.status}).`);
+    if (!gameSession || !signature || !question) {
+      if (/just a moment|attention required|cf-chl|error code/i.test(text)) {
+        throw new Error(`Blocked by Cloudflare (status ${response.status}).`);
       }
       throw new Error(
         "Could not start Akinator session (unexpected response).",
       );
     }
 
-    this.step = 0;
-    this.progression = 0;
-    this.stepLastProposition = "";
-    this.completion = "OK";
-    this.question = decodeEntities(question);
+    this._commit(response, {
+      session: gameSession,
+      signature,
+      step: 0,
+      progression: 0,
+      stepLastProposition: "",
+      completion: "OK",
+      question,
+    });
 
     auditLog("info", "AKINATOR", "Game started (theme=characters).");
     return {
       type: "question",
-      question: this.question,
+      question,
       step: "0",
       progression: 0,
     };
@@ -253,6 +322,7 @@ export class AkinatorClient {
    * @throws {Error} If the answer key is not recognized.
    */
   async answer(key) {
+    this._assertUsable();
     const answerId = ANSWER_IDS[key];
     if (answerId === undefined) throw new Error(`Invalid answer key: ${key}`);
 
@@ -285,6 +355,7 @@ export class AkinatorClient {
    * @returns {Promise<{type:string, [key:string]: any}>}
    */
   async back() {
+    this._assertUsable();
     if (this.step <= 0) {
       return {
         type: "question",
@@ -317,6 +388,7 @@ export class AkinatorClient {
    * @returns {Promise<{type:string, [key:string]: any}>}
    */
   async confirmGuess(accept) {
+    this._assertUsable();
     if (accept) {
       auditLog("info", "AKINATOR", "guess accepted -> win");
       return { type: "win" };
@@ -348,9 +420,12 @@ export class AkinatorClient {
    * @returns {Promise<void>}
    */
   async dispose() {
+    this.disposed = true;
     this.cookies = {};
     this.session = null;
     this.signature = null;
+    this.question = "";
+    this.completion = null;
   }
 }
 

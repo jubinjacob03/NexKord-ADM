@@ -12,6 +12,7 @@ import {
 } from "discord.js";
 import fs from "fs";
 import path from "path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "url";
 import { AkinatorClient } from "./akinatorClient.js";
 import { closeClient } from "./tlsClient.js";
@@ -45,9 +46,32 @@ const DEFEAT_COLOR = 0xe74c3c;
  * @type {Record<string, string>}
  */
 const SMALL_CAPS = {
-  a: "ᴀ", b: "ʙ", c: "ᴄ", d: "ᴅ", e: "ᴇ", f: "ꜰ", g: "ɢ", h: "ʜ", i: "ɪ",
-  j: "ᴊ", k: "ᴋ", l: "ʟ", m: "ᴍ", n: "ɴ", o: "ᴏ", p: "ᴘ", q: "ꞯ", r: "ʀ",
-  s: "ꜱ", t: "ᴛ", u: "ᴜ", v: "ᴠ", w: "ᴡ", x: "x", y: "ʏ", z: "ᴢ",
+  a: "ᴀ",
+  b: "ʙ",
+  c: "ᴄ",
+  d: "ᴅ",
+  e: "ᴇ",
+  f: "ꜰ",
+  g: "ɢ",
+  h: "ʜ",
+  i: "ɪ",
+  j: "ᴊ",
+  k: "ᴋ",
+  l: "ʟ",
+  m: "ᴍ",
+  n: "ɴ",
+  o: "ᴏ",
+  p: "ᴘ",
+  q: "ꞯ",
+  r: "ʀ",
+  s: "ꜱ",
+  t: "ᴛ",
+  u: "ᴜ",
+  v: "ᴠ",
+  w: "ᴡ",
+  x: "x",
+  y: "ʏ",
+  z: "ᴢ",
 };
 
 /**
@@ -76,6 +100,9 @@ const V2 = MessageFlags.IsComponentsV2;
 let discordClient = null;
 let gameIdleTimer = null;
 let clientIdleTimer = null;
+let lifecycleGeneration = crypto.randomUUID();
+let shuttingDown = false;
+let shutdownPromise = null;
 
 /**
  * The single global game session. Exactly one game runs at a time; any other
@@ -83,6 +110,7 @@ let clientIdleTimer = null;
  */
 const session = {
   active: false,
+  generation: null,
   /** @type {"question"|"guess"|null} */
   phase: null,
   playerId: null,
@@ -98,19 +126,69 @@ const session = {
   lastCard: null,
 };
 
+function isEpoch(generation) {
+  return !shuttingDown && lifecycleGeneration === generation;
+}
+
+function isCurrent(generation) {
+  return (
+    isEpoch(generation) && session.active && session.generation === generation
+  );
+}
+
+function resetSession() {
+  session.active = false;
+  session.generation = null;
+  session.phase = null;
+  session.playerId = null;
+  session.playerTag = null;
+  session.channelId = null;
+  session.aki = null;
+  session.busy = false;
+  session.lastActivity = 0;
+  session.lastMsg = null;
+  session.lastCard = null;
+}
+
+function customId(generation, action) {
+  return `aki:${generation}:${action}`;
+}
+
 /**
  * Maps free-text input to a canonical answer key.
  * @type {Record<string, string>}
  */
 const ANSWER_WORDS = {
-  yes: "yes", y: "yes", yeah: "yes", yep: "yes", yup: "yes", ya: "yes",
-  no: "no", n: "no", nope: "no", nah: "no", nay: "no",
-  "don't know": "idk", "dont know": "idk", "i don't know": "idk",
-  "i dont know": "idk", idk: "idk", dk: "idk", dunno: "idk", "no idea": "idk",
-  probably: "probably", prob: "probably", p: "probably", maybe: "probably",
-  likely: "probably", "i think so": "probably",
-  "probably not": "probably_not", "prob not": "probably_not",
-  pn: "probably_not", unlikely: "probably_not", "i don't think so": "probably_not",
+  yes: "yes",
+  y: "yes",
+  yeah: "yes",
+  yep: "yes",
+  yup: "yes",
+  ya: "yes",
+  no: "no",
+  n: "no",
+  nope: "no",
+  nah: "no",
+  nay: "no",
+  "don't know": "idk",
+  "dont know": "idk",
+  "i don't know": "idk",
+  "i dont know": "idk",
+  idk: "idk",
+  dk: "idk",
+  dunno: "idk",
+  "no idea": "idk",
+  probably: "probably",
+  prob: "probably",
+  p: "probably",
+  maybe: "probably",
+  likely: "probably",
+  "i think so": "probably",
+  "probably not": "probably_not",
+  "prob not": "probably_not",
+  pn: "probably_not",
+  unlikely: "probably_not",
+  "i don't think so": "probably_not",
 };
 
 const STOP_WORDS = new Set(["stop", "quit", "cancel", "end", "exit"]);
@@ -175,7 +253,10 @@ function progressBar(pct) {
  * @returns {ButtonBuilder}
  */
 function button(id, label, style, emoji = null) {
-  const b = new ButtonBuilder().setCustomId(id).setLabel(sc(label)).setStyle(style);
+  const b = new ButtonBuilder()
+    .setCustomId(id)
+    .setLabel(sc(label))
+    .setStyle(style);
   if (emoji) {
     b.setEmoji(/^[A-Z0-9_]+$/.test(emoji) ? emojiObj(emoji) : emoji);
   }
@@ -187,16 +268,31 @@ function button(id, label, style, emoji = null) {
  * plus the back and stop controls.
  * @returns {ActionRowBuilder<ButtonBuilder>[]}
  */
-function answerRows() {
+function answerRows(generation) {
   const answers = new ActionRowBuilder().addComponents(
     ...ANSWER_ORDER.map((key) => {
       const m = ANSWER_META[key];
-      return button(`aki_ans_${key}`, m.label, ButtonStyle.Secondary, m.emoji);
+      return button(
+        customId(generation, key),
+        m.label,
+        ButtonStyle.Secondary,
+        m.emoji,
+      );
     }),
   );
   const controls = new ActionRowBuilder().addComponents(
-    button("aki_back", "Back", ButtonStyle.Secondary, "AKI_BACK"),
-    button("aki_stop", "Stop", ButtonStyle.Secondary, "AKI_STOP"),
+    button(
+      customId(generation, "back"),
+      "Back",
+      ButtonStyle.Secondary,
+      "AKI_BACK",
+    ),
+    button(
+      customId(generation, "stop"),
+      "Stop",
+      ButtonStyle.Secondary,
+      "AKI_STOP",
+    ),
   );
   return [answers, controls];
 }
@@ -205,10 +301,20 @@ function answerRows() {
  * Builds the guess-confirmation button row.
  * @returns {ActionRowBuilder<ButtonBuilder>}
  */
-function guessRow() {
+function guessRow(generation) {
   return new ActionRowBuilder().addComponents(
-    button("aki_guess_yes", "That's the one", ButtonStyle.Secondary, "AKI_CORRECT"),
-    button("aki_guess_no", "Keep guessing", ButtonStyle.Secondary, "AKI_RETRY"),
+    button(
+      customId(generation, "guess_yes"),
+      "That's the one",
+      ButtonStyle.Secondary,
+      "AKI_CORRECT",
+    ),
+    button(
+      customId(generation, "guess_no"),
+      "Keep guessing",
+      ButtonStyle.Secondary,
+      "AKI_RETRY",
+    ),
   );
 }
 
@@ -221,7 +327,9 @@ function guessRow() {
  */
 function brandFooter(container, hint = null) {
   container.addSeparatorComponents(
-    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+    new SeparatorBuilder()
+      .setDivider(true)
+      .setSpacing(SeparatorSpacingSize.Small),
   );
   const ts = Math.floor(Date.now() / 1000);
   const prefix = hint ? `${sc(hint)} · ` : "";
@@ -245,7 +353,10 @@ function brandFooter(container, hint = null) {
  * @param {boolean} withControls
  * @returns {ContainerBuilder}
  */
-function renderContainer({ header, pose, accent, rows = [], hint = null }, withControls) {
+function renderContainer(
+  { header, pose, accent, rows = [], hint = null },
+  withControls,
+) {
   const container = new ContainerBuilder().setAccentColor(accent);
   container.addSectionComponents(
     new SectionBuilder()
@@ -286,7 +397,9 @@ function buildMessage(opts) {
 function header(title, body = "", titleIcon = null) {
   const persona = `-# ${genieIcon} ${sc("Akinator")}`;
   const titleLine = `${titleIcon ? `${icon(titleIcon)} ` : ""}${sc(title)}`;
-  return body ? `${persona}\n\n${titleLine}\n-# ${sc(body)}` : `${persona}\n\n${titleLine}`;
+  return body
+    ? `${persona}\n\n${titleLine}\n-# ${sc(body)}`
+    : `${persona}\n\n${titleLine}`;
 }
 
 /**
@@ -312,7 +425,7 @@ function addGap(container, divider, spacing = SeparatorSpacingSize.Small) {
  * @param {{interactive: boolean}} opts
  * @returns {{components: ContainerBuilder[], files: import('discord.js').AttachmentBuilder[]}}
  */
-function renderQuestion(data, { interactive }) {
+function renderQuestion(data, { interactive, generation = null }) {
   const pose = akitude(questionAkitude(data.step));
   const text = [
     `-# ${genieIcon} ${sc("Akinator")} · ${sc("Question")} ${data.step ?? "?"}`,
@@ -328,9 +441,13 @@ function renderQuestion(data, { interactive }) {
   );
   if (interactive) {
     addGap(container, true);
-    for (const row of answerRows()) container.addActionRowComponents(row);
+    for (const row of answerRows(generation))
+      container.addActionRowComponents(row);
   }
-  brandFooter(container, interactive ? "Tap a button or type your answer" : null);
+  brandFooter(
+    container,
+    interactive ? "Tap a button or type your answer" : null,
+  );
   return { components: [container], files: [pose.attachment] };
 }
 
@@ -342,7 +459,7 @@ function renderQuestion(data, { interactive }) {
  * @param {{interactive: boolean}} opts
  * @returns {{components: ContainerBuilder[], files: import('discord.js').AttachmentBuilder[]}}
  */
-function renderGuess(data, { interactive }) {
+function renderGuess(data, { interactive, generation = null }) {
   const pose = akitude("confident");
   const lines = [
     `-# ${genieIcon} ${sc("Akinator")}`,
@@ -360,12 +477,14 @@ function renderGuess(data, { interactive }) {
   const container = new ContainerBuilder().setAccentColor(WIN_COLOR);
   container.addSectionComponents(
     new SectionBuilder()
-      .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join("\n")))
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(lines.join("\n")),
+      )
       .setThumbnailAccessory(new ThumbnailBuilder().setURL(pose.url)),
   );
   if (interactive) {
     addGap(container, true);
-    container.addActionRowComponents(guessRow());
+    container.addActionRowComponents(guessRow(generation));
   }
   brandFooter(container, interactive ? "Was I right?" : null);
   return { components: [container], files: [pose.attachment] };
@@ -379,17 +498,26 @@ function renderGuess(data, { interactive }) {
  * @param {string} label Short action label for diagnostic logs.
  * @returns {Promise<import('discord.js').Message|null>}
  */
-async function sendWithRetry(channel, payload, label) {
-  for (let attempt = 1; attempt <= 3; attempt++) {
+async function sendWithRetry(channel, payload, label, generation) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    if (!isEpoch(generation)) return null;
     try {
-      return await channel.send(payload);
-    } catch (err) {
+      const message = await channel.send(payload);
+      if (!isEpoch(generation)) {
+        await message.delete().catch(() => {});
+        return null;
+      }
+      return message;
+    } catch (error) {
+      if (!isEpoch(generation)) return null;
       auditLog(
         "warn",
         "AKINATOR",
-        `send '${label}' attempt ${attempt}/3 failed: ${err.message}`,
+        `send '${label}' attempt ${attempt}/3 failed: ${error.message}`,
       );
-      if (attempt < 3) await new Promise((r) => setTimeout(r, 800));
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
     }
   }
   return null;
@@ -421,12 +549,20 @@ function replyRef(msg) {
  * @param {string} label Choice label.
  * @returns {Promise<import('discord.js').Message|null>}
  */
-async function postChoice(channel, replyToMsg, emojiKey, label) {
-  const content = `${icon(emojiKey)} ${sc(label)}\n-# ${sc(session.playerTag || "Player")}`;
+async function postChoice(
+  channel,
+  replyToMsg,
+  emojiKey,
+  label,
+  playerTag,
+  generation,
+) {
+  const content = `${icon(emojiKey)} ${sc(label)}\n-# ${sc(playerTag || "Player")}`;
   return sendWithRetry(
     channel,
     { content, allowedMentions: { parse: [] }, ...replyRef(replyToMsg) },
     "choice",
+    generation,
   );
 }
 
@@ -441,18 +577,26 @@ async function postChoice(channel, replyToMsg, emojiKey, label) {
  * @param {import('discord.js').Message|null} [replyTo]
  * @returns {Promise<import('discord.js').Message|null>}
  */
-async function sendTracked(channel, built, card, replyTo = null) {
-  retireLastMessage();
-  const msg = await sendWithRetry(
+async function sendTracked(channel, built, card, replyTo, generation) {
+  if (!isCurrent(generation)) return null;
+  retireLastMessage(generation);
+  const message = await sendWithRetry(
     channel,
-    { components: built.components, files: built.files, flags: V2, ...replyRef(replyTo) },
+    {
+      components: built.components,
+      files: built.files,
+      flags: V2,
+      ...replyRef(replyTo),
+    },
     card.kind,
+    generation,
   );
-  if (msg) {
-    session.lastMsg = msg;
-    session.lastCard = card;
-  }
-  return msg;
+  if (!isCurrent(generation)) return null;
+  if (!message) throw new Error(`Could not post the ${card.kind} card.`);
+  session.phase = card.kind;
+  session.lastMsg = message;
+  session.lastCard = card;
+  return message;
 }
 
 /**
@@ -463,11 +607,17 @@ async function sendTracked(channel, built, card, replyTo = null) {
  * @param {import('discord.js').Message|null} [replyTo]
  * @returns {Promise<import('discord.js').Message|null>}
  */
-async function sendPlain(channel, built, replyTo = null) {
+async function sendPlain(channel, built, replyTo, generation) {
   return sendWithRetry(
     channel,
-    { components: built.components, files: built.files, flags: V2, ...replyRef(replyTo) },
+    {
+      components: built.components,
+      files: built.files,
+      flags: V2,
+      ...replyRef(replyTo),
+    },
     "plain",
+    generation,
   );
 }
 
@@ -477,18 +627,21 @@ async function sendPlain(channel, built, replyTo = null) {
  * data with the buttons removed, neutralising a superseded question or guess.
  * @returns {void}
  */
-function retireLastMessage() {
+function retireLastMessage(expectedGeneration = null) {
+  if (expectedGeneration && session.generation !== expectedGeneration) {
+    return;
+  }
   const msg = session.lastMsg;
   const card = session.lastCard;
   session.lastMsg = null;
   session.lastCard = null;
-  if (!msg || !card) return;
+  if (!msg || !card) return Promise.resolve();
 
   const built =
     card.kind === "question"
       ? renderQuestion(card.data, { interactive: false })
       : renderGuess(card.data, { interactive: false });
-  msg.edit({ components: built.components, flags: V2 }).catch(() => {});
+  return msg.edit({ components: built.components, flags: V2 }).catch(() => {});
 }
 
 /**
@@ -500,18 +653,29 @@ function retireLastMessage() {
 async function registerGenieIcon(client) {
   try {
     const emojis = await client.application.emojis.fetch();
+    if (shuttingDown || discordClient !== client) return;
     let emoji = emojis.find((e) => e.name === GENIE_EMOJI_NAME);
     if (!emoji) {
       emoji = await client.application.emojis.create({
         attachment: fs.readFileSync(GENIE_ICON_PATH),
         name: GENIE_EMOJI_NAME,
       });
-      auditLog("info", "AKINATOR", `Registered persona emoji :${GENIE_EMOJI_NAME}:`);
+      if (shuttingDown || discordClient !== client) return;
+      auditLog(
+        "info",
+        "AKINATOR",
+        `Registered persona emoji :${GENIE_EMOJI_NAME}:`,
+      );
     }
     genieIcon = `<:${emoji.name}:${emoji.id}>`;
-  } catch (e) {
+  } catch (error) {
+    if (shuttingDown || discordClient !== client) return;
     genieIcon = "🧞";
-    auditLog("warn", "AKINATOR", `Persona emoji unavailable, using fallback: ${e.message}`);
+    auditLog(
+      "warn",
+      "AKINATOR",
+      `Persona emoji unavailable, using fallback: ${error.message}`,
+    );
   }
 }
 
@@ -522,9 +686,10 @@ async function registerGenieIcon(client) {
  * @returns {Promise<void>}
  */
 export async function initAkinator(client) {
+  if (shuttingDown) throw new Error("Akinator is shutting down.");
   discordClient = client;
-  setInterval(sweepIdle, 30 * 1000);
   await registerGenieIcon(client);
+  if (shuttingDown || discordClient !== client) return;
   const channelId = process.env.AKINATOR_CHANNEL_ID;
   if (!channelId) {
     auditLog("warn", "AKINATOR", "AKINATOR_CHANNEL_ID not set — module idle.");
@@ -537,19 +702,30 @@ export async function initAkinator(client) {
  * (Re)arms the timer that closes the shared TLS client once no game is running.
  * @returns {void}
  */
-function armClientIdle() {
+function armClientIdle(generation) {
   if (clientIdleTimer) clearTimeout(clientIdleTimer);
   clientIdleTimer = setTimeout(() => {
-    if (!session.active) closeClient().catch(() => {});
+    if (isEpoch(generation) && !session.active) {
+      closeClient().catch(() => {});
+    }
   }, CLIENT_IDLE_MS);
+  clientIdleTimer.unref?.();
 }
 
 /**
  * Records player activity to defer the inactivity timeout.
  * @returns {void}
  */
-function touch() {
+function touch(generation) {
+  if (!isCurrent(generation)) return;
   session.lastActivity = Date.now();
+  if (gameIdleTimer) clearTimeout(gameIdleTimer);
+  gameIdleTimer = setTimeout(() => {
+    expireGame(generation).catch((error) =>
+      auditLog("error", "AKINATOR", `idle timeout failed: ${error.message}`),
+    );
+  }, GAME_IDLE_MS);
+  gameIdleTimer.unref?.();
 }
 
 /**
@@ -558,33 +734,36 @@ function touch() {
  * @param {string} reason
  * @returns {Promise<void>}
  */
-async function endGame(reason) {
+async function endGame(reason, expectedGeneration) {
+  if (!isCurrent(expectedGeneration)) return null;
+  const terminalGeneration = crypto.randomUUID();
+  lifecycleGeneration = terminalGeneration;
   if (gameIdleTimer) {
     clearTimeout(gameIdleTimer);
     gameIdleTimer = null;
   }
   const aki = session.aki;
-  retireLastMessage();
-  session.active = false;
-  session.phase = null;
-  session.playerId = null;
-  session.playerTag = null;
-  session.channelId = null;
-  session.aki = null;
-  session.busy = false;
+  retireLastMessage(expectedGeneration);
+  resetSession();
   if (aki) await aki.dispose().catch(() => {});
+  if (!isEpoch(terminalGeneration)) return null;
   auditLog("info", "AKINATOR", `Game ended (${reason}).`);
-  armClientIdle();
+  armClientIdle(terminalGeneration);
+  return terminalGeneration;
 }
 
 /**
  * Ends a game that the player has abandoned past the inactivity threshold.
  * @returns {void}
  */
-function sweepIdle() {
-  if (session.active && Date.now() - session.lastActivity > GAME_IDLE_MS) {
-    const channel = discordClient?.channels?.cache?.get(session.channelId);
-    const built = buildMessage({
+async function expireGame(generation) {
+  if (!isCurrent(generation)) return;
+  const channel = discordClient?.channels?.cache?.get(session.channelId);
+  const terminalGeneration = await endGame("idle-timeout", generation);
+  if (!terminalGeneration || !channel || !isEpoch(terminalGeneration)) return;
+  await sendPlain(
+    channel,
+    buildMessage({
       header: header(
         "The genie dozed off",
         "Game ended due to inactivity — type anything to start a new one!",
@@ -592,11 +771,10 @@ function sweepIdle() {
       ),
       pose: akitude("sleeping"),
       accent: ACCENT,
-    });
-    endGame("idle-timeout").then(() => {
-      if (channel) sendPlain(channel, built);
-    });
-  }
+    }),
+    null,
+    terminalGeneration,
+  );
 }
 
 /**
@@ -619,7 +797,8 @@ export async function handleAkinatorMessage(message) {
     const low = content.toLowerCase();
 
     if (!session.active) {
-      const displayName = message.member?.displayName || message.author.username;
+      const displayName =
+        message.member?.displayName || message.author.username;
       await startGame(message.author, displayName, message.channel);
       return;
     }
@@ -628,13 +807,15 @@ export async function handleAkinatorMessage(message) {
       return;
     }
 
-    touch();
+    const generation = session.generation;
+    if (!isCurrent(generation)) return;
+    touch(generation);
     if (STOP_WORDS.has(low)) {
-      await stopGame(message.channel);
+      await stopGame(message.channel, generation);
       return;
     }
     if (BACK_WORDS.has(low)) {
-      await doBack(message.channel);
+      await doBack(message.channel, generation);
       return;
     }
 
@@ -644,7 +825,7 @@ export async function handleAkinatorMessage(message) {
         await message.reply("Was I right? Answer yes or no.").catch(() => {});
         return;
       }
-      await resolveGuess(yn, message.channel);
+      await resolveGuess(yn, message.channel, generation);
       return;
     }
 
@@ -657,7 +838,7 @@ export async function handleAkinatorMessage(message) {
         .catch(() => {});
       return;
     }
-    await submitAnswer(key, message.channel);
+    await submitAnswer(key, message.channel, generation);
   } catch (err) {
     auditLog("error", "AKINATOR", `message handler error: ${err.message}`);
   }
@@ -669,12 +850,43 @@ export async function handleAkinatorMessage(message) {
  * @returns {Promise<boolean>} Whether the interaction was an Akinator button.
  */
 export async function handleAkinatorButton(interaction) {
-  if (!interaction.isButton?.() || !interaction.customId.startsWith("aki_")) {
+  if (
+    !interaction.isButton?.() ||
+    (!interaction.customId.startsWith("aki:") &&
+      !interaction.customId.startsWith("aki_"))
+  ) {
     return false;
   }
   try {
-    if (!session.active) {
-      await replyNotice(interaction, "That game has ended", "Type in the channel to start a new one!");
+    const parts = interaction.customId.split(":");
+    const generation = parts.length === 3 ? parts[1] : null;
+    const action = parts.length === 3 ? parts[2] : null;
+    const validAction =
+      action === "back" ||
+      action === "stop" ||
+      action === "guess_yes" ||
+      action === "guess_no" ||
+      Object.hasOwn(ANSWER_META, action);
+    const cardMatches =
+      action === "stop" ||
+      (session.lastCard?.kind === "question" &&
+        (action === "back" || Object.hasOwn(ANSWER_META, action))) ||
+      (session.lastCard?.kind === "guess" &&
+        (action === "guess_yes" || action === "guess_no"));
+    const exactCard =
+      isCurrent(generation) &&
+      validAction &&
+      cardMatches &&
+      interaction.channelId === session.channelId &&
+      interaction.message?.channelId === session.channelId &&
+      interaction.message?.id === session.lastMsg?.id;
+
+    if (!exactCard) {
+      await replyNotice(
+        interaction,
+        "That card has expired",
+        "Use the newest game card in the channel.",
+      );
       return true;
     }
     if (interaction.user.id !== session.playerId) {
@@ -682,26 +894,36 @@ export async function handleAkinatorButton(interaction) {
       return true;
     }
 
-    const id = interaction.customId;
-    const ack = interaction.deferUpdate().catch((e) =>
-      auditLog("warn", "AKINATOR", `deferUpdate failed: ${e.message}`),
+    await interaction.deferUpdate();
+    if (
+      !isCurrent(generation) ||
+      (action !== "stop" && interaction.message?.id !== session.lastMsg?.id)
+    ) {
+      return true;
+    }
+    touch(generation);
+    auditLog(
+      "info",
+      "AKINATOR",
+      `button '${action}' by ${interaction.user.tag}`,
     );
-    touch();
-    auditLog("info", "AKINATOR", `button '${id}' by ${interaction.user.tag}`);
-    await ack;
 
-    if (id === "aki_stop") {
-      await stopGame(interaction.channel);
-    } else if (id === "aki_back") {
-      await doBack(interaction.channel);
-    } else if (id.startsWith("aki_ans_")) {
-      await submitAnswer(id.replace("aki_ans_", ""), interaction.channel);
-    } else if (id === "aki_guess_yes" || id === "aki_guess_no") {
-      await resolveGuess(id === "aki_guess_yes", interaction.channel);
+    if (action === "stop") {
+      await stopGame(interaction.channel, generation);
+    } else if (action === "back") {
+      await doBack(interaction.channel, generation);
+    } else if (Object.hasOwn(ANSWER_META, action)) {
+      await submitAnswer(action, interaction.channel, generation);
+    } else {
+      await resolveGuess(
+        action === "guess_yes",
+        interaction.channel,
+        generation,
+      );
     }
     return true;
-  } catch (err) {
-    auditLog("error", "AKINATOR", `button handler error: ${err.message}`);
+  } catch (error) {
+    auditLog("error", "AKINATOR", `button handler error: ${error.message}`);
     return true;
   }
 }
@@ -741,20 +963,27 @@ async function replyNotice(interaction, title, body) {
  * @returns {Promise<void>}
  */
 async function startGame(user, displayName, channel) {
-  if (session.busy) return;
+  if (session.active || shuttingDown) return;
+  const generation = crypto.randomUUID();
+  const akinator = new AkinatorClient();
+  lifecycleGeneration = generation;
+  session.active = true;
+  session.generation = generation;
+  session.phase = "question";
+  session.playerId = user.id;
+  session.playerTag = displayName;
+  session.channelId = channel.id;
+  session.aki = akinator;
   session.busy = true;
+  if (clientIdleTimer) {
+    clearTimeout(clientIdleTimer);
+    clientIdleTimer = null;
+  }
+  touch(generation);
+  auditLog("info", "AKINATOR", `${user.tag} started a game.`);
+
   let summoning = null;
   try {
-    session.active = true;
-    session.phase = "question";
-    session.playerId = user.id;
-    session.playerTag = displayName;
-    session.channelId = channel.id;
-    session.aki = new AkinatorClient();
-    touch();
-    if (gameIdleTimer) clearTimeout(gameIdleTimer);
-    auditLog("info", "AKINATOR", `${user.tag} started a game.`);
-
     summoning = await sendPlain(
       channel,
       buildMessage({
@@ -766,14 +995,26 @@ async function startGame(user, displayName, channel) {
         pose: akitude("mindreading"),
         accent: ACCENT,
       }),
+      null,
+      generation,
     );
+    if (!isCurrent(generation)) return;
+    if (!summoning) throw new Error("Could not post the summoning card.");
 
-    const state = await session.aki.startGame();
+    const state = await akinator.startGame();
+    if (!isCurrent(generation)) {
+      await summoning.delete().catch(() => {});
+      return;
+    }
+    await summoning.delete().catch(() => {});
+    if (!isCurrent(generation)) return;
+    await postState(state, channel, null, generation);
+  } catch (error) {
     if (summoning) await summoning.delete().catch(() => {});
-    await postState(state, channel);
-  } catch (err) {
-    auditLog("error", "AKINATOR", `startGame failed: ${err.message}`);
-    if (summoning) await summoning.delete().catch(() => {});
+    if (!isCurrent(generation)) return;
+    auditLog("error", "AKINATOR", `startGame failed: ${error.message}`);
+    const terminalGeneration = await endGame("start-error", generation);
+    if (!terminalGeneration) return;
     await sendPlain(
       channel,
       buildMessage({
@@ -785,10 +1026,11 @@ async function startGame(user, displayName, channel) {
         pose: akitude("stumped"),
         accent: DEFEAT_COLOR,
       }),
+      null,
+      terminalGeneration,
     );
-    await endGame("start-error");
   } finally {
-    session.busy = false;
+    if (isCurrent(generation)) session.busy = false;
   }
 }
 
@@ -798,18 +1040,34 @@ async function startGame(user, displayName, channel) {
  * @param {import('discord.js').TextBasedChannel} channel
  * @returns {Promise<void>}
  */
-async function submitAnswer(key, channel) {
-  if (session.busy || session.phase !== "question") return;
+async function submitAnswer(key, channel, generation) {
+  if (!isCurrent(generation) || session.busy || session.phase !== "question") {
+    return;
+  }
+  const akinator = session.aki;
+  const playerTag = session.playerTag;
   session.busy = true;
   try {
-    const qMsg = session.lastMsg;
-    retireLastMessage();
+    const questionMessage = session.lastMsg;
+    retireLastMessage(generation);
     const meta = ANSWER_META[key];
-    const choice = await postChoice(channel, qMsg, meta?.emoji, meta?.label || key);
-    const state = await session.aki.answer(key);
-    await postState(state, channel, choice);
-  } catch (err) {
-    auditLog("error", "AKINATOR", `submitAnswer failed: ${err.message}`);
+    const choice = await postChoice(
+      channel,
+      questionMessage,
+      meta?.emoji,
+      meta?.label || key,
+      playerTag,
+      generation,
+    );
+    if (!isCurrent(generation)) return;
+    const state = await akinator.answer(key);
+    if (!isCurrent(generation)) return;
+    await postState(state, channel, choice, generation);
+  } catch (error) {
+    if (!isCurrent(generation)) return;
+    auditLog("error", "AKINATOR", `submitAnswer failed: ${error.message}`);
+    const terminalGeneration = await endGame("answer-error", generation);
+    if (!terminalGeneration) return;
     await sendPlain(
       channel,
       buildMessage({
@@ -821,10 +1079,11 @@ async function submitAnswer(key, channel) {
         pose: akitude("stumped"),
         accent: DEFEAT_COLOR,
       }),
+      null,
+      terminalGeneration,
     );
-    await endGame("answer-error");
   } finally {
-    session.busy = false;
+    if (isCurrent(generation)) session.busy = false;
   }
 }
 
@@ -833,19 +1092,49 @@ async function submitAnswer(key, channel) {
  * @param {import('discord.js').TextBasedChannel} channel
  * @returns {Promise<void>}
  */
-async function doBack(channel) {
-  if (session.busy || session.phase !== "question") return;
+async function doBack(channel, generation) {
+  if (!isCurrent(generation) || session.busy || session.phase !== "question") {
+    return;
+  }
+  const akinator = session.aki;
+  const playerTag = session.playerTag;
   session.busy = true;
   try {
-    const qMsg = session.lastMsg;
-    retireLastMessage();
-    const choice = await postChoice(channel, qMsg, "AKI_BACK", "Back");
-    const state = await session.aki.back();
-    await postState(state, channel, choice);
-  } catch (err) {
-    auditLog("error", "AKINATOR", `back failed: ${err.message}`);
+    const questionMessage = session.lastMsg;
+    retireLastMessage(generation);
+    const choice = await postChoice(
+      channel,
+      questionMessage,
+      "AKI_BACK",
+      "Back",
+      playerTag,
+      generation,
+    );
+    if (!isCurrent(generation)) return;
+    const state = await akinator.back();
+    if (!isCurrent(generation)) return;
+    await postState(state, channel, choice, generation);
+  } catch (error) {
+    if (!isCurrent(generation)) return;
+    auditLog("error", "AKINATOR", `back failed: ${error.message}`);
+    const terminalGeneration = await endGame("back-error", generation);
+    if (!terminalGeneration) return;
+    await sendPlain(
+      channel,
+      buildMessage({
+        header: header(
+          "The genie lost the thread",
+          "Game ended — type anything to start over.",
+          "WARNING",
+        ),
+        pose: akitude("stumped"),
+        accent: DEFEAT_COLOR,
+      }),
+      null,
+      terminalGeneration,
+    );
   } finally {
-    session.busy = false;
+    if (isCurrent(generation)) session.busy = false;
   }
 }
 
@@ -854,8 +1143,9 @@ async function doBack(channel) {
  * @param {import('discord.js').TextBasedChannel} channel
  * @returns {Promise<void>}
  */
-async function stopGame(channel) {
-  await endGame("player-stop");
+async function stopGame(channel, generation) {
+  const terminalGeneration = await endGame("player-stop", generation);
+  if (!terminalGeneration) return;
   await sendPlain(
     channel,
     buildMessage({
@@ -867,6 +1157,8 @@ async function stopGame(channel) {
       pose: akitude("serene"),
       accent: ACCENT,
     }),
+    null,
+    terminalGeneration,
   );
 }
 
@@ -876,34 +1168,63 @@ async function stopGame(channel) {
  * @param {import('discord.js').TextBasedChannel} channel
  * @returns {Promise<void>}
  */
-async function resolveGuess(accept, channel) {
-  if (session.busy || session.phase !== "guess") return;
+async function resolveGuess(accept, channel, generation) {
+  if (!isCurrent(generation) || session.busy || session.phase !== "guess") {
+    return;
+  }
+  const akinator = session.aki;
+  const playerTag = session.playerTag;
   session.busy = true;
   try {
-    const gMsg = session.lastMsg;
-    retireLastMessage();
+    const guessMessage = session.lastMsg;
+    retireLastMessage(generation);
     if (accept) {
-      const choice = await postChoice(channel, gMsg, "AKI_CORRECT", "That's the one");
-      await session.aki.confirmGuess(true);
-      const built = buildMessage({
-        header: header(
-          "Guessed it!",
-          "The genie read your mind — type anything to play again!",
-          "SUCCESS",
-        ),
-        pose: akitude("confident"),
-        accent: WIN_COLOR,
-      });
-      await endGame("win");
-      await sendPlain(channel, built, choice);
+      const choice = await postChoice(
+        channel,
+        guessMessage,
+        "AKI_CORRECT",
+        "That's the one",
+        playerTag,
+        generation,
+      );
+      if (!isCurrent(generation)) return;
+      await akinator.confirmGuess(true);
+      if (!isCurrent(generation)) return;
+      const terminalGeneration = await endGame("win", generation);
+      if (!terminalGeneration) return;
+      await sendPlain(
+        channel,
+        buildMessage({
+          header: header(
+            "Guessed it!",
+            "The genie read your mind — type anything to play again!",
+            "SUCCESS",
+          ),
+          pose: akitude("confident"),
+          accent: WIN_COLOR,
+        }),
+        choice,
+        terminalGeneration,
+      );
     } else {
-      const choice = await postChoice(channel, gMsg, "AKI_RETRY", "Keep guessing");
-      const state = await session.aki.confirmGuess(false);
-      session.phase = "question";
-      await postState(state, channel, choice);
+      const choice = await postChoice(
+        channel,
+        guessMessage,
+        "AKI_RETRY",
+        "Keep guessing",
+        playerTag,
+        generation,
+      );
+      if (!isCurrent(generation)) return;
+      const state = await akinator.confirmGuess(false);
+      if (!isCurrent(generation)) return;
+      await postState(state, channel, choice, generation);
     }
-  } catch (err) {
-    auditLog("error", "AKINATOR", `resolveGuess failed: ${err.message}`);
+  } catch (error) {
+    if (!isCurrent(generation)) return;
+    auditLog("error", "AKINATOR", `resolveGuess failed: ${error.message}`);
+    const terminalGeneration = await endGame("guess-error", generation);
+    if (!terminalGeneration) return;
     await sendPlain(
       channel,
       buildMessage({
@@ -915,10 +1236,11 @@ async function resolveGuess(accept, channel) {
         pose: akitude("stumped"),
         accent: DEFEAT_COLOR,
       }),
+      null,
+      terminalGeneration,
     );
-    await endGame("guess-error");
   } finally {
-    session.busy = false;
+    if (isCurrent(generation)) session.busy = false;
   }
 }
 
@@ -930,9 +1252,11 @@ async function resolveGuess(accept, channel) {
  * @param {import('discord.js').Message|null} [replyTo]
  * @returns {Promise<void>}
  */
-async function postState(state, channel, replyTo = null) {
-  if (!state || !state.type) {
-    await endGame("empty-state");
+async function postState(state, channel, replyTo, generation) {
+  if (!isCurrent(generation)) return;
+  if (!state || !["question", "guess", "defeat"].includes(state.type)) {
+    const terminalGeneration = await endGame("empty-state", generation);
+    if (!terminalGeneration) return;
     await sendPlain(
       channel,
       buildMessage({
@@ -941,12 +1265,12 @@ async function postState(state, channel, replyTo = null) {
         accent: DEFEAT_COLOR,
       }),
       replyTo,
+      terminalGeneration,
     );
     return;
   }
 
   if (state.type === "guess") {
-    session.phase = "guess";
     const data = {
       name: state.name,
       description: state.description,
@@ -954,41 +1278,70 @@ async function postState(state, channel, replyTo = null) {
     };
     await sendTracked(
       channel,
-      renderGuess(data, { interactive: true }),
+      renderGuess(data, { interactive: true, generation }),
       { kind: "guess", data },
       replyTo,
+      generation,
     );
     return;
   }
 
   if (state.type === "defeat") {
-    const built = buildMessage({
-      header: header(
-        "You beat the genie!",
-        "I couldn't guess it. Well played — type anything to challenge me again!",
-        "STAFF",
-      ),
-      pose: akitude("stumped"),
-      accent: DEFEAT_COLOR,
-    });
-    await endGame("defeat");
-    await sendPlain(channel, built, replyTo);
+    const terminalGeneration = await endGame("defeat", generation);
+    if (!terminalGeneration) return;
+    await sendPlain(
+      channel,
+      buildMessage({
+        header: header(
+          "You beat the genie!",
+          "I couldn't guess it. Well played — type anything to challenge me again!",
+          "STAFF",
+        ),
+        pose: akitude("stumped"),
+        accent: DEFEAT_COLOR,
+      }),
+      replyTo,
+      terminalGeneration,
+    );
     return;
   }
 
-  session.phase = "question";
   const data = {
     step: state.step,
     question: state.question,
     progression: state.progression,
   };
-  const posted = await sendTracked(
+  await sendTracked(
     channel,
-    renderQuestion(data, { interactive: true }),
+    renderQuestion(data, { interactive: true, generation }),
     { kind: "question", data },
     replyTo,
+    generation,
   );
-  if (!posted) {
-    auditLog("warn", "AKINATOR", `failed to post question ${state.step} card`);
+}
+
+export function shutdownAkinator() {
+  if (shutdownPromise) return shutdownPromise;
+  shuttingDown = true;
+  lifecycleGeneration = crypto.randomUUID();
+  if (gameIdleTimer) {
+    clearTimeout(gameIdleTimer);
+    gameIdleTimer = null;
   }
+  if (clientIdleTimer) {
+    clearTimeout(clientIdleTimer);
+    clientIdleTimer = null;
+  }
+  const akinator = session.aki;
+  const retirePromise = retireLastMessage();
+  resetSession();
+  discordClient = null;
+  shutdownPromise = (async () => {
+    await Promise.allSettled([
+      retirePromise,
+      akinator?.dispose?.() ?? Promise.resolve(),
+    ]);
+    await closeClient();
+  })();
+  return shutdownPromise;
 }

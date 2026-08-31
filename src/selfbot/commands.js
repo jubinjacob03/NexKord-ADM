@@ -18,10 +18,14 @@ import {
   findMovies as findLibraryMovies,
   getBestVariant,
   formatVariantList,
-  loadLibrary,
+  loadLibraryReadOnly,
 } from "../games/cinema/library.js";
+import { validatePlayInput, validateRemoteMediaUrl } from "./mediaInput.js";
+import { RequestedStreamStop } from "./streamer.js";
 
-const STREAM_COMMANDS = new Set(["movie", "tv", "play"]);
+export { validatePlayInput };
+
+const STREAM_COMMANDS = new Set(["movie", "tv", "play", "prepare"]);
 const SEEN_MESSAGE_TTL_MS = 60000;
 
 const seenMessages = new Map();
@@ -95,41 +99,33 @@ function splitSeasonEpisode(args) {
   return { query: tokens.join(" ").trim(), season, episode };
 }
 
-async function resolveVoiceChannel(message, client) {
-  if (message.member?.voice?.channelId) {
-    return {
-      guildId: message.guildId,
-      channelId: message.member.voice.channelId,
-    };
+function isAuthorizedCommand(message) {
+  if (
+    !config.defaultGuildId ||
+    !config.defaultChannelId ||
+    !config.controllerId
+  ) {
+    return false;
   }
-
-  const guildId = message.guildId || config.defaultGuildId;
-
-  if (config.defaultVoiceChannelId && guildId) {
-    return { guildId, channelId: config.defaultVoiceChannelId };
-  }
-
-  if (!guildId) return null;
-
-  const guild = await client.guilds.fetch(guildId).catch(() => null);
-  if (!guild) return null;
-
-  const channels = await guild.channels
-    .fetch()
-    .catch(() => guild.channels.cache);
-  const voiceChannel = channels?.find(
-    (c) => c?.type === "GUILD_VOICE" || c?.type === "GUILD_STAGE_VOICE",
-  );
-
-  return voiceChannel
-    ? { guildId: guild.id, channelId: voiceChannel.id }
-    : null;
+  if (message.guildId !== config.defaultGuildId) return false;
+  if (message.channelId !== config.defaultChannelId) return false;
+  const allowedSenders = new Set([config.controllerId, ...config.operatorIds]);
+  return allowedSenders.has(message.author?.id);
 }
 
-async function prepareLocalCopy({ media, resolved, notice, header }) {
+async function resolveVoiceChannel() {
+  if (!config.defaultGuildId || !config.defaultVoiceChannelId) return null;
+  return {
+    guildId: config.defaultGuildId,
+    channelId: config.defaultVoiceChannelId,
+  };
+}
+
+async function prepareLocalCopy({ media, resolved, notice, header, signal }) {
   const { file, cached } = await ensureLocalCopy({
     media,
     resolved,
+    signal,
     onPlan: ({ plan, durationSeconds }) => {
       const estimateGB =
         durationSeconds > 0
@@ -194,13 +190,17 @@ async function startStream({
   media,
   directInput,
   header,
+  preparation,
 }) {
-  const vc = await resolveVoiceChannel(message, streamer.client);
+  if (!preparation) throw new Error("Media preparation was not reserved.");
+  const signal = preparation.controller.signal;
+  signal.throwIfAborted();
+  const vc = await resolveVoiceChannel();
   if (!vc) {
     await message.reply(
       ui.stack(
         ui.heading("no voice channel", "⚠️"),
-        `Join a voice channel, or set \`DEFAULT_VOICE_CHANNEL_ID\` in \`.env\`.`,
+        `Join a voice channel, or set \`SELFBOT_VOICE_CHANNEL_ID\` in \`.env\`.`,
       ),
     );
     return;
@@ -209,83 +209,122 @@ async function startStream({
   const notice = await message.reply(
     ui.stack(header, ui.subtext(ui.smallCaps("finding a source"))),
   );
-
+  signal.throwIfAborted();
   let playInput = directInput;
   let playOptions = {};
   let provider = null;
 
-  if (media) {
-    const resolved = await resolvePlayableStream(media, streamer.urlExtractor, {
-      preferredServerIndex: panelManager.activeServerIndex,
-    });
-    playInput = resolved.url;
-    playOptions = {
-      headers: resolved.headers,
-      sourceHint: { width: resolved.width, height: resolved.height },
-    };
-
-    if (panelManager.activeServerIndex !== resolved.serverIndex) {
-      console.log(
-        `[COMMAND] Sticking to ${resolved.serverName} for future requests.`,
+  try {
+    if (media) {
+      const resolved = await resolvePlayableStream(
+        media,
+        streamer.urlExtractor,
+        {
+          preferredServerIndex: panelManager.activeServerIndex,
+          signal,
+        },
       );
-      panelManager.activeServerIndex = resolved.serverIndex;
-      panelManager.saveStore();
-    }
+      const source = {
+        ...resolved,
+        url: await validateRemoteMediaUrl(resolved.url),
+      };
+      signal.throwIfAborted();
+      playInput = source.url;
+      playOptions = {
+        headers: source.headers,
+        sourceHint: { width: source.width, height: source.height },
+      };
 
-    if (config.prefetch.enabled) {
-      try {
-        playInput = await prepareLocalCopy({ media, resolved, notice, header });
-        playOptions = {};
-      } catch (err) {
-        // A failed download should not kill the request. Streaming straight from
-        // the CDN is worse, but it is better than nothing.
-        console.warn(
-          `[PREFETCH] Failed, falling back to direct streaming: ${err.message}`,
+      if (panelManager.activeServerIndex !== source.serverIndex) {
+        console.log(
+          `[COMMAND] Sticking to ${source.serverName} for future requests.`,
         );
-        await notice
-          .edit(
-            ui.stack(
-              header,
-              ui.heading("download failed", "⚠️"),
-              err.message,
-              ui.subtext(ui.smallCaps("streaming directly instead")),
-            ),
-          )
-          .catch(() => {});
+        panelManager.setActiveServerIndex(source.serverIndex);
       }
+
+      if (config.prefetch.enabled) {
+        try {
+          playInput = await prepareLocalCopy({
+            media,
+            resolved: source,
+            notice,
+            header,
+            signal,
+          });
+          playOptions = {};
+        } catch (err) {
+          if (err instanceof RequestedStreamStop) {
+            console.log("[PREFETCH] Preparation cancelled by a stop request.");
+            throw err;
+          }
+          console.warn(`[PREFETCH] Preparation failed: ${err.message}`);
+          await notice
+            .edit(
+              ui.stack(
+                header,
+                ui.heading("download failed", "⚠️"),
+                "The title could not be prepared safely for playback.",
+              ),
+            )
+            .catch(() => {});
+          throw err;
+        }
+      }
+
+      provider = source.serverName;
     }
 
-    provider = resolved.serverName;
+    signal.throwIfAborted();
+    await notice
+      .edit(
+        ui.stack(
+          header,
+          ui.subtext(
+            provider && `${ui.smallCaps("provider")} ${provider}`,
+            `${ui.smallCaps("joining")} ${ui.channelMention(vc.channelId)}`,
+          ),
+        ),
+      )
+      .catch(() => {});
+
+    signal.throwIfAborted();
+    await streamer.join(vc.guildId, vc.channelId, signal);
+    signal.throwIfAborted();
+    await notice
+      .edit(
+        ui.stack(
+          header,
+          ui.subtext(
+            `▶️ ${ui.smallCaps("live in")} ${ui.channelMention(vc.channelId)}`,
+            provider && provider,
+          ),
+        ),
+      )
+      .catch(() => {});
+    signal.throwIfAborted();
+  } catch (error) {
+    streamer.completePreparation(preparation);
+    throw error;
   }
 
-  await notice
-    .edit(
-      ui.stack(
-        header,
-        ui.subtext(
-          provider && `${ui.smallCaps("provider")} ${provider}`,
-          `${ui.smallCaps("joining")} ${ui.channelMention(vc.channelId)}`,
+  streamer.completePreparation(preparation);
+  const { playback } = await streamer.play(playInput, playOptions);
+  void playback
+    .catch(async (error) => {
+      console.error(`[COMMAND] Playback failed: ${error.message}`);
+      await notice.edit(
+        ui.stack(
+          header,
+          ui.heading("playback failed", "⚠️"),
+          "The media pipeline stopped unexpectedly.",
         ),
-      ),
-    )
-    .catch(() => {});
-
-  // Join only once the media is ready. Joining first would leave the bot sitting
-  // silently in the channel for as long as preparation takes.
-  await streamer.join(vc.guildId, vc.channelId);
-  await notice
-    .edit(
-      ui.stack(
-        header,
-        ui.subtext(
-          `▶️ ${ui.smallCaps("live in")} ${ui.channelMention(vc.channelId)}`,
-          provider && provider,
-        ),
-      ),
-    )
-    .catch(() => {});
-
-  await streamer.play(playInput, playOptions);
+      );
+    })
+    .catch((error) => {
+      console.error(
+        `[COMMAND] Could not report playback failure: ${error.message}`,
+      );
+    });
 }
 
 export async function handleCommand(
@@ -295,7 +334,7 @@ export async function handleCommand(
   panelManager,
 ) {
   if (!message.content?.startsWith(config.prefix)) return;
-  if (message.author?.bot) return;
+  if (!isAuthorizedCommand(message)) return;
 
   if (alreadyHandled(message.id)) {
     console.warn(
@@ -312,25 +351,40 @@ export async function handleCommand(
     console.log(
       `[COMMAND] "${command}" ignored: another stream request is still resolving.`,
     );
-    await message
-      .reply(
+    await message.reply(
+      ui.stack(
+        ui.heading("already working", "⏳"),
+        "A stream request is still in progress.",
+        ui.subtext(`\`${config.prefix}stop\` ${ui.smallCaps("to cancel it")}`),
+      ),
+    );
+    return;
+  }
+
+  console.log(`[COMMAND] ${message.author?.id || "unknown"}: ${command}`);
+
+  const managesPreparation = STREAM_COMMANDS.has(command);
+  let preparation = null;
+  if (managesPreparation) {
+    try {
+      preparation = streamer.beginPreparation();
+    } catch {
+      console.log(
+        `[COMMAND] "${command}" ignored: media preparation is already active.`,
+      );
+      await message.reply(
         ui.stack(
           ui.heading("already working", "⏳"),
-          "A stream request is still in progress.",
+          "Another title is still being prepared.",
           ui.subtext(
             `\`${config.prefix}stop\` ${ui.smallCaps("to cancel it")}`,
           ),
         ),
-      )
-      .catch(() => {});
-    return;
+      );
+      return;
+    }
+    streamCommandInFlight = true;
   }
-
-  console.log(
-    `[COMMAND] ${message.author?.tag}: ${command} ${args.join(" ")}`.trim(),
-  );
-
-  if (STREAM_COMMANDS.has(command)) streamCommandInFlight = true;
 
   try {
     await dispatch({
@@ -340,22 +394,26 @@ export async function handleCommand(
       streamer,
       scheduler,
       panelManager,
+      preparation,
     });
   } catch (err) {
-    console.error(`[COMMAND] "${command}" failed: ${err.message}`);
-    await message
-      .reply(
+    if (err instanceof RequestedStreamStop) {
+      console.log(`[COMMAND] "${command}" was cancelled by a stop request.`);
+    } else {
+      console.error(`[COMMAND] "${command}" failed: ${err.message}`);
+      await message.reply(
         ui.stack(
           ui.heading("something went wrong", "⚠️"),
-          err.message,
+          "The request could not be completed. Check the bot logs for details.",
           ui.subtext(
             `${ui.smallCaps("command")} \`${config.prefix}${command}\``,
           ),
         ),
-      )
-      .catch(() => {});
+      );
+    }
   } finally {
-    if (STREAM_COMMANDS.has(command)) streamCommandInFlight = false;
+    streamer.completePreparation(preparation);
+    if (managesPreparation) streamCommandInFlight = false;
   }
 }
 
@@ -366,6 +424,7 @@ async function dispatch({
   streamer,
   scheduler,
   panelManager,
+  preparation,
 }) {
   switch (command) {
     case "help": {
@@ -413,7 +472,9 @@ async function dispatch({
         return;
       }
 
-      loadLibrary();
+      preparation.controller.signal.throwIfAborted();
+      loadLibraryReadOnly();
+      preparation.controller.signal.throwIfAborted();
       const libraryResults = findLibraryMovies(query);
 
       if (libraryResults.length === 0) {
@@ -452,6 +513,7 @@ async function dispatch({
         message,
         streamer,
         panelManager,
+        preparation,
         directInput: best.filePath,
         header: ui.lines(
           ui.heading("now playing", "🎬"),
@@ -478,7 +540,9 @@ async function dispatch({
         return;
       }
 
-      const show = await findMedia(query, "tv");
+      const show = await findMedia(query, "tv", {
+        signal: preparation.controller.signal,
+      });
       if (!show) {
         await message.reply(notFound(query));
         return;
@@ -488,6 +552,7 @@ async function dispatch({
         message,
         streamer,
         panelManager,
+        preparation,
         media: {
           tmdbId: show.id,
           type: "tv",
@@ -504,18 +569,25 @@ async function dispatch({
     }
 
     case "play": {
-      const input = args.join(" ");
-      if (!input) {
+      const requestedInput = args.join(" ");
+      if (!requestedInput) {
         await message.reply(usage("play <url or path>"));
         return;
       }
+      preparation.controller.signal.throwIfAborted();
+      const validated = await validatePlayInput(requestedInput);
+      preparation.controller.signal.throwIfAborted();
 
       await startStream({
         message,
         streamer,
         panelManager,
-        directInput: input,
-        header: ui.lines(ui.heading("direct stream", "▶️"), `\`${input}\``),
+        preparation,
+        directInput: validated.input,
+        header: ui.lines(
+          ui.heading("direct stream", "▶️"),
+          `\`${validated.label}\``,
+        ),
       });
       break;
     }
@@ -577,7 +649,8 @@ async function dispatch({
         return;
       }
 
-      const movie = await findMedia(query, "movie");
+      const signal = preparation.controller.signal;
+      const movie = await findMedia(query, "movie", { signal });
       if (!movie) {
         await message.reply(notFound(query));
         return;
@@ -615,12 +688,13 @@ async function dispatch({
         streamer.urlExtractor,
         {
           preferredServerIndex: panelManager.activeServerIndex,
+          signal,
         },
       );
 
-      const file = await prepareLocalCopy({ media, resolved, notice, header });
-      await notice
-        .edit(
+      await prepareLocalCopy({ media, resolved, notice, header, signal });
+      try {
+        await notice.edit(
           ui.stack(
             ui.lines(
               ui.heading("ready", "✅"),
@@ -630,9 +704,13 @@ async function dispatch({
               `\`${config.prefix}movie ${query}\` ${ui.smallCaps("starts instantly now")}`,
             ),
           ),
-        )
-        .catch(() => {});
-      console.log(`[PREFETCH] Prepared ${file}`);
+        );
+      } catch {
+        console.warn(
+          "[PREFETCH] Could not update the completed preparation notice.",
+        );
+      }
+      console.log(`[PREFETCH] Prepared ${key}`);
       break;
     }
 
@@ -809,9 +887,9 @@ async function dispatch({
         return;
       }
 
-      const requested = Number.parseInt(args[0], 10);
+      const requested = /^\d+$/.test(args[0]) ? Number(args[0]) : NaN;
       if (
-        !Number.isFinite(requested) ||
+        !Number.isSafeInteger(requested) ||
         requested < 0 ||
         requested >= SERVERS.length
       ) {
@@ -825,7 +903,7 @@ async function dispatch({
         return;
       }
 
-      panelManager.activeServerIndex = clampServerIndex(requested);
+      panelManager.setActiveServerIndex(clampServerIndex(requested));
       await message.reply(
         ui.stack(
           ui.lines(
@@ -904,12 +982,12 @@ async function dispatch({
     }
 
     case "join": {
-      const vc = await resolveVoiceChannel(message, streamer.client);
+      const vc = await resolveVoiceChannel();
       if (!vc) {
         await message.reply(
           ui.stack(
             ui.heading("no voice channel", "⚠️"),
-            "Join a voice channel, or set `DEFAULT_VOICE_CHANNEL_ID` in `.env`.",
+            "Set `SELFBOT_GUILD_ID` and `SELFBOT_VOICE_CHANNEL_ID` in `.env`.",
           ),
         );
         return;
@@ -926,6 +1004,15 @@ async function dispatch({
     }
 
     case "leave": {
+      if (config.stayInVoice) {
+        await message.reply(
+          ui.stack(
+            ui.heading("voice hold enabled", "🎙️"),
+            "Disable `SELFBOT_STAY_IN_VC` to allow manual disconnects.",
+          ),
+        );
+        return;
+      }
       await streamer.leave();
       await message.reply(ui.stack(ui.heading("left voice", "🚪")));
       break;

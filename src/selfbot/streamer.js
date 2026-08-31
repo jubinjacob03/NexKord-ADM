@@ -10,11 +10,19 @@ import { existsSync } from "node:fs";
 import { StreamUrlExtractor } from "./browserStreamer.js";
 import { config } from "./config.js";
 import { planEncoding, probeSource } from "./mediaProbe.js";
+import { validatePlayInput, validateRemoteMediaUrl } from "./mediaInput.js";
+import { spoolProgressiveMedia } from "./progressiveMedia.js";
+import { cancelPrefetchOperations } from "./prefetch.js";
 
-const DIRECT_MEDIA_PATTERN = /\.(m3u8|mpd|mp4|mkv|webm|avi|mov|ts)(\?|$)/i;
+const DIRECT_MEDIA_PATTERN = /\.(mp4|mkv|webm|avi|mov|flv)(\?|$)/i;
 const STOP_GRACE_MS = 3000;
+const PLAYBACK_DRAIN_GRACE_MS = 10000;
 const JOIN_TIMEOUT_MS = 15000;
-const STALE_CLEAR_TIMEOUT_MS = 1500;
+const STALE_CLEAR_TIMEOUT_MS = 5000;
+
+export class RequestedStreamStop extends Error {}
+
+export class PlaybackStalled extends Error {}
 
 function withTimeout(promise, ms, message) {
   let timer;
@@ -24,8 +32,48 @@ function withTimeout(promise, ms, message) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms, signal) {
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason ?? new Error("Operation aborted."));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
+
+function waitForSignal(promise, signal) {
+  if (!signal) return promise;
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason ?? new Error("Operation aborted."));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    Promise.resolve(promise).then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 function isHttpUrl(input) {
@@ -56,58 +104,225 @@ export class MovieStreamer {
     this.currentMedia = null;
     this.abortController = null;
     this.playback = null;
+    this.preparationOperation = null;
+    this.preparedStream = null;
+    this.voiceOperation = Promise.resolve();
+  }
+
+  cachedVoiceChannelId(guildId = config.defaultGuildId) {
+    const guild = this.client.guilds.cache.get(guildId);
+    return guild?.members?.me?.voice?.channelId || null;
+  }
+
+  hasReadyVoiceTransport(
+    guildId = config.defaultGuildId,
+    channelId = config.defaultVoiceChannelId,
+    expectedRtc = null,
+  ) {
+    const connection = this.streamer.voiceConnection;
+    const rtc = connection?.webRtcConn;
+    return Boolean(
+      guildId &&
+      channelId &&
+      this.cachedVoiceChannelId(guildId) === channelId &&
+      connection?.guildId === guildId &&
+      connection?.channelId === channelId &&
+      rtc &&
+      (!expectedRtc || rtc === expectedRtc) &&
+      rtc.mediaConnection === connection &&
+      rtc.ready,
+    );
   }
 
   get isConnected() {
-    return Boolean(this.streamer.voiceConnection);
+    return this.hasReadyVoiceTransport();
   }
 
-  async join(guildId, channelId) {
+  get isPreparing() {
+    return Boolean(this.preparationOperation);
+  }
+
+  queueVoiceOperation(operation) {
+    const queued = this.voiceOperation.catch(() => {}).then(operation);
+    this.voiceOperation = queued.catch(() => {});
+    return queued;
+  }
+
+  beginPreparation() {
+    if (this.preparationOperation) {
+      throw new Error("Another media preparation is already active.");
+    }
+    let resolveSettlement;
+    const operation = {
+      controller: new AbortController(),
+      settled: new Promise((resolve) => {
+        resolveSettlement = resolve;
+      }),
+      resolveSettlement,
+      completed: false,
+    };
+    this.preparationOperation = operation;
+    return operation;
+  }
+
+  completePreparation(operation) {
+    if (!operation || operation.completed) return;
+    operation.completed = true;
+    operation.resolveSettlement();
+    if (this.preparationOperation === operation) {
+      this.preparationOperation = null;
+    }
+  }
+
+  async fetchVoiceChannelId(guildId) {
+    const guild = await this.client.guilds.fetch(guildId);
+    const member =
+      guild.members.me ?? (await guild.members.fetch(this.client.user.id));
+    if (typeof member.voice?.fetch === "function") {
+      await member.voice.fetch(true).catch(() => {});
+    }
+    return member.voice?.channelId || null;
+  }
+
+  async waitForVoiceChannel(guildId, expectedChannelId, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    do {
+      const current = await this.fetchVoiceChannelId(guildId).catch(() =>
+        this.cachedVoiceChannelId(guildId),
+      );
+      if (current === expectedChannelId) return true;
+      await sleep(200);
+    } while (Date.now() < deadline);
+    return false;
+  }
+
+  async waitForVoiceTransport(
+    guildId,
+    channelId,
+    expectedRtc,
+    timeoutMs,
+    signal,
+  ) {
+    const deadline = Date.now() + timeoutMs;
+    do {
+      signal?.throwIfAborted();
+      await waitForSignal(
+        this.fetchVoiceChannelId(guildId).catch(() => null),
+        signal,
+      );
+      if (this.hasReadyVoiceTransport(guildId, channelId, expectedRtc)) {
+        return true;
+      }
+      await sleep(200, signal);
+    } while (Date.now() < deadline);
+    return false;
+  }
+
+  async join(guildId, channelId, signal) {
+    const queued = this.queueVoiceOperation(() => {
+      signal?.throwIfAborted();
+      return this.joinInternal(guildId, channelId, signal);
+    });
+    queued.catch(() => {});
+    return waitForSignal(queued, signal);
+  }
+
+  async joinInternal(guildId, channelId, signal) {
+    signal?.throwIfAborted();
     if (!guildId || !channelId) {
       throw new Error(
         "Guild ID and Channel ID are required to join a voice channel.",
       );
     }
-
     if (
-      this.currentGuildId === guildId &&
-      this.currentChannelId === channelId &&
-      this.isConnected
+      guildId !== config.defaultGuildId ||
+      channelId !== config.defaultVoiceChannelId
     ) {
-      console.log(`[VOICE] Already connected to voice channel ${channelId}.`);
+      throw new Error(
+        "Voice joins are limited to the configured Cinema channel.",
+      );
+    }
+
+    const currentChannelId = await waitForSignal(
+      this.fetchVoiceChannelId(guildId).catch(() =>
+        this.cachedVoiceChannelId(guildId),
+      ),
+      signal,
+    );
+    if (
+      currentChannelId === channelId &&
+      this.hasReadyVoiceTransport(guildId, channelId)
+    ) {
+      this.currentGuildId = guildId;
+      this.currentChannelId = channelId;
       return;
     }
 
-    console.log(`[VOICE] Joining guild ${guildId} / channel ${channelId}`);
-
-    if (!this.isConnected) {
-      await this.clearStaleVoiceSession(guildId);
+    if (currentChannelId || this.streamer.voiceConnection) {
+      console.log("[VOICE] Clearing a stale voice session.");
+      await this.teardownVoiceSession(guildId);
+      signal?.throwIfAborted();
     }
+
+    console.log(`[VOICE] Joining configured channel ${channelId}.`);
+    const joinAttempt = Promise.resolve(
+      this.streamer.joinVoice(guildId, channelId),
+    );
+    let joinResolved = false;
+    let expectedRtc;
 
     try {
-      await withTimeout(
-        this.streamer.joinVoice(guildId, channelId),
+      expectedRtc = await waitForSignal(
+        withTimeout(
+          joinAttempt,
+          JOIN_TIMEOUT_MS,
+          `Voice channel join timed out after ${JOIN_TIMEOUT_MS / 1000}s.`,
+        ),
+        signal,
+      );
+      joinResolved = true;
+      const ready = await this.waitForVoiceTransport(
+        guildId,
+        channelId,
+        expectedRtc,
         JOIN_TIMEOUT_MS,
-        `Voice channel join handshake timed out after ${JOIN_TIMEOUT_MS / 1000}s.`,
+        signal,
       );
-    } catch (err) {
-      console.warn(
-        `[VOICE] ${err.message} Forcing a disconnect and retrying once.`,
-      );
-      this.forceVoiceDisconnect(guildId);
-      await sleep(1500);
+      if (!ready) {
+        throw new Error("The configured voice transport did not become ready.");
+      }
+    } catch (error) {
+      if (!joinResolved) {
+        void joinAttempt
+          .then((lateRtc) =>
+            this.queueVoiceOperation(async () => {
+              if (this.streamer.voiceConnection?.webRtcConn === lateRtc) {
+                await this.teardownVoiceSession(guildId);
+              }
+            }),
+          )
+          .catch(() => {});
+      }
 
-      await withTimeout(
-        this.streamer.joinVoice(guildId, channelId),
-        JOIN_TIMEOUT_MS,
-        "Voice channel join failed twice. Discord may still hold a stale voice session for this " +
-          "account - wait a minute, or disconnect the account from voice in the Discord client.",
-      );
+      let cleanupError = null;
+      try {
+        await this.teardownVoiceSession(guildId);
+      } catch (failure) {
+        cleanupError = failure;
+      }
+      if (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          "Voice join failed and the partial session could not be cleared.",
+        );
+      }
+      throw error;
     }
 
+    signal?.throwIfAborted();
     this.currentGuildId = guildId;
     this.currentChannelId = channelId;
-    console.log(`[VOICE] Connected to voice channel ${channelId}.`);
+    console.log(`[VOICE] Connected to configured channel ${channelId}.`);
   }
 
   forceVoiceDisconnect(guildId) {
@@ -120,29 +335,37 @@ export class MovieStreamer {
     });
   }
 
-  // Stale voice session: unclean shutdown leaves Discord believing this
-  // account is still connected. Re-joining the same channel is a no-op, so
-  // force a disconnect first.
-  async clearStaleVoiceSession(guildId) {
-    const guild = await this.client.guilds.fetch(guildId).catch(() => null);
-    if (!guild) return;
-
-    const me =
-      guild.members.me ??
-      (await guild.members.fetch(this.client.user.id).catch(() => null));
-    const staleChannelId = me?.voice?.channelId;
-    if (!staleChannelId) return;
-
-    console.log(`[VOICE] Clearing a stale voice session in ${staleChannelId}.`);
-    this.forceVoiceDisconnect(guildId);
-
-    const deadline = Date.now() + STALE_CLEAR_TIMEOUT_MS;
-    while (Date.now() < deadline && guild.members.me?.voice?.channelId) {
-      await sleep(150);
+  async teardownVoiceSession(guildId, { cancelPreparation = false } = {}) {
+    await this.stop({ cancelPreparation });
+    try {
+      this.streamer.stopStream();
+    } catch (error) {
+      console.warn(`[VOICE] stopStream warning: ${error.message}`);
     }
+    try {
+      this.streamer.leaveVoice();
+    } catch (error) {
+      console.warn(`[VOICE] leaveVoice warning: ${error.message}`);
+    }
+    try {
+      this.forceVoiceDisconnect(guildId);
+    } catch (error) {
+      console.warn(`[VOICE] disconnect signal warning: ${error.message}`);
+    }
+
+    const disconnected = await this.waitForVoiceChannel(
+      guildId,
+      null,
+      STALE_CLEAR_TIMEOUT_MS,
+    );
+    if (!disconnected) {
+      throw new Error("Discord did not clear the previous voice session.");
+    }
+    this.currentGuildId = null;
+    this.currentChannelId = null;
   }
 
-  async resolvePlayableSource(mediaInput, presetHeaders) {
+  async resolvePlayableSource(mediaInput, presetHeaders, signal) {
     if (isDirectMedia(mediaInput)) {
       return { source: mediaInput, headers: presetHeaders ?? {} };
     }
@@ -150,16 +373,17 @@ export class MovieStreamer {
     console.log("[STREAM] Embed page detected. Extracting direct stream URL.");
     const extracted = await this.urlExtractor.extractStreamUrl(mediaInput, {
       timeout: config.extractorTimeoutMs,
+      signal,
     });
 
     if (!extracted) {
       throw new Error(
-        `Could not extract a playable stream from ${mediaInput}. Try a different server provider.`,
+        "Could not extract a playable stream. Try a different server provider.",
       );
     }
 
     return {
-      source: extracted.url,
+      source: await validateRemoteMediaUrl(extracted.url),
       headers: {
         Referer: extracted.referer,
         Origin: extracted.origin,
@@ -168,60 +392,21 @@ export class MovieStreamer {
     };
   }
 
-  async describeSource(source, headers, hint, timeoutMs) {
-    // Adaptive manifests must be probed; a player-reported hint is sufficient
-    // for everything else.
-    const isManifest = /\.(mpd|m3u8)(\?|$)/i.test(String(source));
-
-    if (!isManifest && hint?.width > 0 && hint?.height > 0) {
-      console.log(
-        `[STREAM] Source ${hint.width}x${hint.height} (reported by the player)`,
-      );
-      return {
-        width: hint.width,
-        height: hint.height,
-        fps: 0,
-        codec: "unknown",
-        bitrateKbps: 0,
-        videoStreams: [
-          {
-            order: 0,
-            width: hint.width,
-            height: hint.height,
-            fps: 0,
-            bitrateKbps: 0,
-          },
-        ],
-        audioCount: 1,
-        hasAudio: true,
-      };
-    }
-
-    try {
-      const probe = await probeSource(
-        source,
-        headers,
-        timeoutMs ?? config.probeTimeoutMs,
-      );
-      const renditions = probe.videoStreams
-        .map((s) => `${s.width}x${s.height}`)
-        .join(", ");
-      console.log(
-        `[STREAM] Source ${probe.codec} @${probe.fps}fps ${probe.bitrateKbps}kbps ` +
-          `renditions=[${renditions}] audioTracks=${probe.audioCount}`,
-      );
-      return probe;
-    } catch (err) {
-      console.warn(
-        `[STREAM] Could not probe the source (${err.message.split("\n")[0]}); using defaults.`,
-      );
-      if (isManifest) {
-        console.warn(
-          "[STREAM] Without a probe every rendition will be encoded, which will stutter.",
-        );
-      }
-      return null;
-    }
+  async describeSource(source, timeoutMs, signal) {
+    const probe = await probeSource(
+      source,
+      timeoutMs ?? config.probeTimeoutMs,
+      2,
+      signal,
+    );
+    const renditions = probe.videoStreams
+      .map((stream) => `${stream.width}x${stream.height}`)
+      .join(", ");
+    console.log(
+      `[STREAM] Source ${probe.codec} @${probe.fps}fps ${probe.bitrateKbps}kbps ` +
+        `renditions=[${renditions}] audioTracks=${probe.audioCount}`,
+    );
+    return probe;
   }
 
   async play(mediaInput, options = {}) {
@@ -229,137 +414,304 @@ export class MovieStreamer {
       throw new Error("The bot must join a voice channel before streaming.");
     }
 
-    if (this.isStreaming) {
-      console.log("[STREAM] Replacing the active stream.");
-      await this.stop();
-    }
-
-    const { source, headers } = await this.resolvePlayableSource(
-      mediaInput,
-      options.headers,
-    );
-    const localFileProfile =
-      options.localFileProfile ??
-      (config.localStream.enabled && isLocalFileInput(source));
-    const probeTimeoutMs = localFileProfile
-      ? config.localStream.probeTimeoutMs
-      : config.probeTimeoutMs;
-
-    const probe =
-      localFileProfile && config.localStream.skipProbe
-        ? null
-        : await this.describeSource(
-            source,
-            headers,
-            options.sourceHint,
-            probeTimeoutMs,
-          );
-
-    const plan = planEncoding(probe, {
-      maxWidth: options.maxWidth ?? config.stream.maxWidth,
-      maxFps: options.maxFps ?? config.stream.maxFps,
-      forceWidth: options.forceWidth ?? config.stream.forceWidth,
-      forceFps: options.forceFps ?? config.stream.forceFps,
-      bitrateVideo:
-        options.bitrateVideo ??
-        (localFileProfile
-          ? config.localStream.bitrateVideo
-          : config.stream.bitrateVideo),
-      bitrateFloor: localFileProfile
-        ? config.localStream.bitrateFloor
-        : config.stream.bitrateFloor,
-      bitrateCeiling: localFileProfile
-        ? config.localStream.bitrateCeiling
-        : config.stream.bitrateCeiling,
-    });
-
-    const preset =
-      options.preset ??
-      (localFileProfile ? config.localStream.preset : config.stream.preset);
-    const bitrateAudio =
-      options.bitrateAudio ??
-      (localFileProfile
-        ? config.localStream.bitrateAudio
-        : config.stream.bitrateAudio);
-    const customInputOptions = isHttpUrl(source)
-      ? ["-rw_timeout", String(config.sourceReadTimeoutMs * 1000)]
-      : ["-fflags", "nobuffer", "-flags", "low_delay"];
-
-    const encoderOptions = {
-      encoder: Encoders.software({ x264: { preset }, x265: { preset } }),
-      videoCodec: Utils.normalizeVideoCodec(
-        options.videoCodec ?? config.stream.videoCodec,
-      ),
-      bitrateVideo: plan.bitrateVideo,
-      bitrateVideoMax: plan.bitrateVideoMax,
-      bitrateAudio,
-      hardwareAcceleratedDecoding:
-        options.hardwareAcceleratedDecoding ??
-        config.stream.hardwareAcceleratedDecoding,
-      customHeaders: headers,
-      customInputOptions,
-      customFfmpegFlags: plan.excludeFlags,
-    };
-
-    if (plan.width) encoderOptions.width = plan.width;
-    if (plan.frameRate) encoderOptions.frameRate = plan.frameRate;
-
-    const playOptions = { type: options.type ?? "go-live" };
-
-    console.log(
-      `[STREAM] ${playOptions.type} ${encoderOptions.videoCodec} ${plan.reason.join(", ")} ` +
-        `preset=${preset} audio=${encoderOptions.bitrateAudio}kbps profile=${localFileProfile ? "local" : "default"}`,
-    );
-
-    const controller = new AbortController();
-    this.abortController = controller;
-    this.isStreaming = true;
-    this.currentMedia = mediaInput;
-
-    let prepared;
+    const preparation = this.beginPreparation();
+    const controller = preparation.controller;
+    let sourceSpool = null;
+    let setupPreparedState = null;
     try {
-      prepared = prepareStream(source, encoderOptions, controller.signal);
-    } catch (err) {
-      this.resetPlaybackState();
-      throw new Error(`FFmpeg pipeline failed to start: ${err.message}`);
-    }
+      if (this.isStreaming) {
+        console.log("[STREAM] Replacing the active stream.");
+        await this.stop({ cancelPreparation: false });
+      }
 
-    prepared.promise.catch((err) => {
-      if (controller.signal.aborted) return;
-      console.error(`[STREAM] FFmpeg error: ${err.message}`);
-      controller.abort(err);
-    });
+      controller.signal.throwIfAborted();
+      if (!this.isConnected) {
+        throw new Error("The voice transport disconnected before playback.");
+      }
+      this.currentMedia = mediaInput;
+      const validatedInput = await validatePlayInput(mediaInput);
+      const resolved = await this.resolvePlayableSource(
+        validatedInput.input,
+        options.headers,
+        controller.signal,
+      );
+      const remoteSource = isHttpUrl(resolved.source);
+      sourceSpool = remoteSource
+        ? await spoolProgressiveMedia(resolved.source, resolved.headers, {
+            signal: controller.signal,
+          })
+        : null;
+      const source = sourceSpool?.file ?? resolved.source;
+      const localFileProfile =
+        options.localFileProfile ??
+        (!remoteSource &&
+          config.localStream.enabled &&
+          isLocalFileInput(source));
+      const probeTimeoutMs = localFileProfile
+        ? config.localStream.probeTimeoutMs
+        : config.probeTimeoutMs;
 
-    const startupTimeoutMs = localFileProfile
-      ? config.localStream.startupTimeoutMs
-      : config.streamStartupTimeoutMs;
-    const watchdog = this.startProgressWatchdog(
-      prepared.command,
-      controller,
-      startupTimeoutMs,
-    );
+      const probe =
+        localFileProfile && config.localStream.skipProbe
+          ? null
+          : await this.describeSource(
+              source,
+              probeTimeoutMs,
+              controller.signal,
+            );
 
-    const playback = playStream(
-      prepared.output,
-      this.streamer,
-      playOptions,
-      controller.signal,
-    )
-      .finally(() => clearTimeout(watchdog.timer))
-      .then(() => console.log("[STREAM] Playback finished."))
-      .catch((err) => {
-        if (controller.signal.aborted) {
-          console.log("[STREAM] Playback ended (stopped).");
-        } else {
-          console.error(`[STREAM] Playback failed: ${err.message}`);
-        }
-      })
-      .finally(() => {
-        if (this.abortController === controller) this.resetPlaybackState();
+      const durationSeconds = probe?.durationSeconds ?? 0;
+      if (
+        remoteSource &&
+        durationSeconds < config.prefetch.minDurationSeconds
+      ) {
+        throw new Error(
+          `Remote media is only ${durationSeconds.toFixed(1)}s; refusing to play a likely segment.`,
+        );
+      }
+
+      const plan = planEncoding(probe, {
+        maxWidth: options.maxWidth ?? config.stream.maxWidth,
+        maxFps: options.maxFps ?? config.stream.maxFps,
+        forceWidth: options.forceWidth ?? config.stream.forceWidth,
+        forceFps: options.forceFps ?? config.stream.forceFps,
+        bitrateVideo:
+          options.bitrateVideo ??
+          (localFileProfile
+            ? config.localStream.bitrateVideo
+            : config.stream.bitrateVideo),
+        bitrateFloor: localFileProfile
+          ? config.localStream.bitrateFloor
+          : config.stream.bitrateFloor,
+        bitrateCeiling: localFileProfile
+          ? config.localStream.bitrateCeiling
+          : config.stream.bitrateCeiling,
       });
 
-    this.playback = playback;
-    return { playback };
+      const preset =
+        options.preset ??
+        (localFileProfile ? config.localStream.preset : config.stream.preset);
+      const bitrateAudio =
+        options.bitrateAudio ??
+        (localFileProfile
+          ? config.localStream.bitrateAudio
+          : config.stream.bitrateAudio);
+      const customInputOptions = [
+        "-protocol_whitelist",
+        "file,pipe",
+        "-fflags",
+        "nobuffer",
+        "-flags",
+        "low_delay",
+      ];
+
+      const encoderOptions = {
+        encoder: Encoders.software({ x264: { preset }, x265: { preset } }),
+        videoCodec: Utils.normalizeVideoCodec(
+          options.videoCodec ?? config.stream.videoCodec,
+        ),
+        bitrateVideo: plan.bitrateVideo,
+        bitrateVideoMax: plan.bitrateVideoMax,
+        bitrateAudio,
+        hardwareAcceleratedDecoding:
+          options.hardwareAcceleratedDecoding ??
+          config.stream.hardwareAcceleratedDecoding,
+        customHeaders: {},
+        customInputOptions,
+        customFfmpegFlags: plan.excludeFlags,
+      };
+
+      if (plan.width) encoderOptions.width = plan.width;
+      if (plan.frameRate) encoderOptions.frameRate = plan.frameRate;
+
+      const playOptions = { type: options.type ?? "go-live" };
+
+      console.log(
+        `[STREAM] ${playOptions.type} ${encoderOptions.videoCodec} ${plan.reason.join(", ")} ` +
+          `preset=${preset} audio=${encoderOptions.bitrateAudio}kbps profile=${localFileProfile ? "local" : "default"}`,
+      );
+
+      if (!this.isConnected) {
+        throw new Error("The voice transport disconnected before playback.");
+      }
+
+      controller.signal.throwIfAborted();
+      this.abortController = controller;
+      this.isStreaming = true;
+
+      let prepared;
+      try {
+        prepared = prepareStream(source, encoderOptions, controller.signal);
+      } catch (err) {
+        this.resetPlaybackState();
+        throw new Error(`FFmpeg pipeline failed to start: ${err.message}`);
+      }
+
+      const preparedState = {
+        prepared,
+        controller,
+        forceKill: false,
+        onAbort: null,
+        onStart: null,
+        stop: null,
+      };
+      const stopPreparedProcess = () => {
+        const reason =
+          controller.signal.reason instanceof Error
+            ? controller.signal.reason
+            : new Error("Media processing was aborted.");
+        if (!prepared.output.destroyed) prepared.output.destroy(reason);
+        try {
+          prepared.command.kill(
+            preparedState.forceKill ? "SIGKILL" : "SIGTERM",
+          );
+        } catch (error) {
+          console.warn(`[STREAM] FFmpeg termination warning: ${error.message}`);
+        }
+      };
+      preparedState.onAbort = stopPreparedProcess;
+      preparedState.stop = stopPreparedProcess;
+      preparedState.onStart = () => {
+        if (controller.signal.aborted) stopPreparedProcess();
+      };
+      controller.signal.addEventListener("abort", preparedState.onAbort, {
+        once: true,
+      });
+      prepared.command.once("start", preparedState.onStart);
+      this.preparedStream = preparedState;
+      setupPreparedState = preparedState;
+
+      const ffmpegOutcome = prepared.promise.then(
+        () => null,
+        (error) => {
+          if (!controller.signal.aborted) {
+            console.error(`[STREAM] FFmpeg error: ${error.message}`);
+            controller.abort(error);
+          }
+          return error;
+        },
+      );
+
+      const startupTimeoutMs = localFileProfile
+        ? config.localStream.startupTimeoutMs
+        : config.streamStartupTimeoutMs;
+      const watchdog = this.startProgressWatchdog(
+        prepared.command,
+        controller,
+        startupTimeoutMs,
+      );
+      this.completePreparation(preparation);
+
+      const playback = (async () => {
+        try {
+          let playbackError = null;
+          try {
+            await playStream(
+              prepared.output,
+              this.streamer,
+              playOptions,
+              controller.signal,
+            );
+          } catch (error) {
+            playbackError = error;
+            if (!controller.signal.aborted) controller.abort(error);
+            try {
+              this.streamer.stopStream();
+            } catch (cleanupError) {
+              console.warn(
+                `[STREAM] Partial stream cleanup warning: ${cleanupError.message}`,
+              );
+            }
+          }
+
+          if (!playbackError && !controller.signal.aborted) {
+            const producerFinished = await Promise.race([
+              ffmpegOutcome.then(() => true),
+              sleep(PLAYBACK_DRAIN_GRACE_MS).then(() => false),
+            ]);
+            if (!producerFinished) {
+              playbackError = new PlaybackStalled(
+                "The stream stopped while media was still being produced.",
+              );
+              console.error(
+                "[STREAM] The stream ended before FFmpeg finished; treating it as a failure.",
+              );
+              controller.abort(playbackError);
+              try {
+                this.streamer.stopStream();
+              } catch (cleanupError) {
+                console.warn(
+                  `[STREAM] Partial stream cleanup warning: ${cleanupError.message}`,
+                );
+              }
+            }
+          }
+
+          const ffmpegError = await ffmpegOutcome;
+          const abortReason = controller.signal.reason;
+          if (abortReason instanceof RequestedStreamStop) {
+            console.log("[STREAM] Playback stopped by request.");
+            return;
+          }
+          if (playbackError instanceof PlaybackStalled) throw playbackError;
+          if (ffmpegError) throw ffmpegError;
+          if (playbackError) throw playbackError;
+          if (controller.signal.aborted) {
+            throw abortReason instanceof Error
+              ? abortReason
+              : new Error("Playback aborted unexpectedly.");
+          }
+          console.log("[STREAM] Playback finished.");
+        } catch (error) {
+          if (controller.signal.reason instanceof RequestedStreamStop) {
+            console.log("[STREAM] Playback stopped by request.");
+            return;
+          }
+          console.error(`[STREAM] Playback failed: ${error.message}`);
+          throw error;
+        } finally {
+          clearTimeout(watchdog.timer);
+          controller.signal.removeEventListener("abort", preparedState.onAbort);
+          prepared.command.off("start", preparedState.onStart);
+          if (this.preparedStream === preparedState) this.preparedStream = null;
+          if (sourceSpool) {
+            await sourceSpool.dispose().catch(() => {
+              console.warn("[STREAM] Could not remove the remote media spool.");
+            });
+          }
+          if (this.abortController === controller) this.resetPlaybackState();
+        }
+      })();
+
+      this.playback = playback;
+      return { playback };
+    } catch (error) {
+      this.completePreparation(preparation);
+      if (setupPreparedState) {
+        if (!controller.signal.aborted) controller.abort(error);
+        setupPreparedState.forceKill = true;
+        setupPreparedState.stop();
+        await setupPreparedState.prepared.promise.catch(() => {});
+        controller.signal.removeEventListener(
+          "abort",
+          setupPreparedState.onAbort,
+        );
+        setupPreparedState.prepared.command.off(
+          "start",
+          setupPreparedState.onStart,
+        );
+        if (this.preparedStream === setupPreparedState) {
+          this.preparedStream = null;
+        }
+      }
+      if (sourceSpool) {
+        await sourceSpool.dispose().catch(() => {
+          console.warn("[STREAM] Could not remove the remote media spool.");
+        });
+      }
+      if (this.currentMedia === mediaInput) this.resetPlaybackState();
+      throw error;
+    }
   }
 
   startProgressWatchdog(
@@ -395,51 +747,103 @@ export class MovieStreamer {
     this.playback = null;
   }
 
-  async stop() {
-    if (!this.isStreaming && !this.abortController) return;
-
-    console.log("[STREAM] Stopping the active stream.");
+  async stop({ cancelPreparation = true } = {}) {
+    const reason = new RequestedStreamStop("Stream stopped by request.");
+    const actionablePreparation = cancelPreparation
+      ? this.preparationOperation
+      : null;
     const playback = this.playback;
+    const preparedState = this.preparedStream;
+    const controller = this.abortController;
 
-    // Abort first; stopStream during abort cleanup causes half-torn connections.
-    this.abortController?.abort(new Error("Stream stopped by request."));
+    if (
+      actionablePreparation &&
+      !actionablePreparation.controller.signal.aborted
+    ) {
+      actionablePreparation.controller.abort(reason);
+    }
+    if (controller && !controller.signal.aborted) controller.abort(reason);
+    const prefetchSettlement = cancelPreparation
+      ? cancelPrefetchOperations(reason)
+      : Promise.resolve();
 
-    const settled = playback
-      ? await Promise.race([
-          playback.then(
-            () => true,
-            () => true,
-          ),
-          sleep(STOP_GRACE_MS).then(() => false),
-        ])
-      : true;
+    if (!actionablePreparation && !playback && !preparedState && !controller) {
+      await prefetchSettlement;
+      return;
+    }
 
-    if (!settled) {
+    console.log("[STREAM] Stopping active media work.");
+    const initialSettlements = [
+      playback,
+      actionablePreparation?.settled,
+    ].filter(Boolean);
+    let mediaSettled =
+      initialSettlements.length === 0 ||
+      (await Promise.race([
+        Promise.allSettled(initialSettlements).then(() => true),
+        sleep(STOP_GRACE_MS).then(() => false),
+      ]));
+
+    if (!mediaSettled) {
       console.warn(
-        "[STREAM] Playback did not settle in time; forcing the stream closed.",
+        "[STREAM] Media work did not settle in time; forcing it closed.",
       );
       try {
         this.streamer.stopStream();
-      } catch (err) {
-        console.warn(`[STREAM] stopStream warning: ${err.message}`);
+      } catch (error) {
+        console.warn(`[STREAM] stopStream warning: ${error.message}`);
+      }
+      const activePrepared = this.preparedStream;
+      if (activePrepared) {
+        activePrepared.forceKill = true;
+        activePrepared.stop();
+      }
+      const forcedSettlements = [
+        playback,
+        activePrepared?.prepared.promise,
+      ].filter(Boolean);
+      mediaSettled =
+        forcedSettlements.length === 0 ||
+        (await Promise.race([
+          Promise.allSettled(forcedSettlements).then(() => true),
+          sleep(STOP_GRACE_MS).then(() => false),
+        ]));
+      if (!mediaSettled) {
+        console.warn("[STREAM] Forced media shutdown remains unsettled.");
+        if (this.preparedStream === activePrepared) this.preparedStream = null;
       }
     }
 
-    this.resetPlaybackState();
+    await prefetchSettlement;
+    if (playback && mediaSettled) await playback.catch(() => {});
+    if (
+      this.abortController === controller ||
+      (actionablePreparation &&
+        this.preparationOperation === actionablePreparation)
+    ) {
+      this.resetPlaybackState();
+    }
   }
 
   async leave() {
-    await this.stop();
-    if (!this.currentGuildId && !this.isConnected) return;
+    return this.queueVoiceOperation(() => this.leaveInternal());
+  }
 
-    console.log(`[VOICE] Leaving voice channel ${this.currentChannelId}.`);
-    try {
-      this.streamer.leaveVoice();
-    } catch (err) {
-      console.warn(`[VOICE] leaveVoice warning: ${err.message}`);
+  async leaveInternal() {
+    await this.stop();
+    const guildId = this.currentGuildId || config.defaultGuildId;
+    if (!guildId) return;
+    const connectedChannelId = await this.fetchVoiceChannelId(guildId).catch(
+      () => this.cachedVoiceChannelId(guildId),
+    );
+    if (!connectedChannelId && !this.streamer.voiceConnection) {
+      this.currentGuildId = null;
+      this.currentChannelId = null;
+      return;
     }
-    this.currentGuildId = null;
-    this.currentChannelId = null;
+
+    console.log("[VOICE] Leaving configured channel.");
+    await this.teardownVoiceSession(guildId);
   }
 
   async dispose() {
@@ -448,10 +852,11 @@ export class MovieStreamer {
   }
 
   getStatus() {
+    const currentChannelId = this.cachedVoiceChannelId();
     return {
       isStreaming: this.isStreaming,
-      currentGuildId: this.currentGuildId,
-      currentChannelId: this.currentChannelId,
+      currentGuildId: currentChannelId ? config.defaultGuildId : null,
+      currentChannelId,
       currentMedia: this.currentMedia,
     };
   }

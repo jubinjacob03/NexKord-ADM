@@ -23,7 +23,7 @@ async function tmdbGet(pathname, params = {}) {
   return res.json();
 }
 
-export async function searchMovies(query) {
+async function searchMovies(query) {
   const data = await tmdbGet("/search/movie", {
     query,
     include_adult: "false",
@@ -39,7 +39,7 @@ export async function searchMovies(query) {
   }));
 }
 
-export async function searchTV(query) {
+async function searchTV(query) {
   const data = await tmdbGet("/search/tv", { query, include_adult: "false" });
   return (data.results || []).slice(0, 10).map((t) => ({
     id: t.id,
@@ -67,8 +67,4 @@ export async function searchAll(query) {
   ];
   results.sort((a, b) => b.popularity - a.popularity);
   return results.slice(0, 10);
-}
-
-export function posterUrl(path, size = "w780") {
-  return path ? `${IMG_BASE}/${size}${path}` : null;
 }

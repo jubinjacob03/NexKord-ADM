@@ -1,10 +1,22 @@
-import fs from "fs";
-import path from "path";
+import path from "node:path";
 import { clampServerIndex } from "./resolvers.js";
 import { config } from "./config.js";
+import {
+  readJsonFileSync,
+  writeJsonFileAtomicSync,
+} from "../utils/jsonStore.js";
 
 const dataDir = path.join(process.cwd(), "data");
 const panelStoreFile = path.join(dataDir, "panelStore.json");
+
+function validPanelStore(value) {
+  return (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Number.isSafeInteger(value.activeServerIndex)
+  );
+}
 
 export class PanelManager {
   constructor(client, streamer, scheduler) {
@@ -16,23 +28,24 @@ export class PanelManager {
   }
 
   loadStore() {
-    fs.mkdirSync(dataDir, { recursive: true });
-    if (!fs.existsSync(panelStoreFile)) return;
-    try {
-      const data = JSON.parse(fs.readFileSync(panelStoreFile, "utf8"));
-      if (data.activeServerIndex !== undefined) {
-        this.activeServerIndex = clampServerIndex(data.activeServerIndex);
-      }
-    } catch {}
+    const stored = readJsonFileSync(panelStoreFile, {
+      fallback: { activeServerIndex: this.activeServerIndex },
+      validate: validPanelStore,
+      label: "selfbot panel state",
+    });
+    this.activeServerIndex = clampServerIndex(stored.activeServerIndex);
   }
 
   saveStore() {
-    try {
-      fs.writeFileSync(
-        panelStoreFile,
-        JSON.stringify({ activeServerIndex: this.activeServerIndex }),
-        "utf8",
-      );
-    } catch {}
+    writeJsonFileAtomicSync(panelStoreFile, {
+      activeServerIndex: this.activeServerIndex,
+    });
+  }
+
+  setActiveServerIndex(value) {
+    const next = clampServerIndex(value);
+    writeJsonFileAtomicSync(panelStoreFile, { activeServerIndex: next });
+    this.activeServerIndex = next;
+    return next;
   }
 }

@@ -1,5 +1,6 @@
 import puppeteer from "puppeteer";
 import { config } from "./config.js";
+import { redactUrl } from "../utils/network.js";
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
@@ -30,12 +31,48 @@ const PLAY_SELECTORS = [
   "video",
 ];
 
+const SEGMENT_PATTERN = /\.(?:m4s|cmfv|cmfa|ts)(?:\?|$)/i;
+const MANIFEST_PATTERN = /\.(?:m3u8|mpd)(?:\?|$)/i;
+
+function isSegmentUrl(url) {
+  return SEGMENT_PATTERN.test(url) || /(?:^|\/)segment[-_.\d]/i.test(url);
+}
+
+function isAdaptiveContentType(contentType) {
+  return (
+    contentType.includes("mpegurl") ||
+    contentType.includes("dash") ||
+    contentType.includes("mp2t")
+  );
+}
+
 function scoreCandidate(url) {
-  if (/\.m3u8(\?|$)/i.test(url))
-    return /master|index|playlist/i.test(url) ? 5 : 4;
-  if (/\.mpd(\?|$)/i.test(url)) return 3;
-  if (/\.(mp4|mkv|webm)(\?|$)/i.test(url)) return 2;
+  if (isSegmentUrl(url) || MANIFEST_PATTERN.test(url)) return 0;
+  if (/\.mp4(\?|$)/i.test(url)) return 5;
+  if (/\.webm(\?|$)/i.test(url)) return 4;
+  if (/\.(mkv|mov|avi|flv)(\?|$)/i.test(url)) return 3;
   return 0;
+}
+
+function isProgressiveContentType(contentType) {
+  const type = contentType.split(";", 1)[0].trim();
+  return new Set([
+    "video/mp4",
+    "video/webm",
+    "video/x-matroska",
+    "video/quicktime",
+    "video/x-msvideo",
+    "video/x-flv",
+    "video/mpeg",
+  ]).has(type);
+}
+
+function urlOrigin(url) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
 }
 
 export class StreamUrlExtractor {
@@ -54,12 +91,7 @@ export class StreamUrlExtractor {
         ...(config.chromiumPath ? { executablePath: config.chromiumPath } : {}),
         args: [
           "--autoplay-policy=no-user-gesture-required",
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
           "--disable-dev-shm-usage",
-          "--disable-web-security",
-          "--disable-features=IsolateOrigins,site-per-process",
-          "--allow-running-insecure-content",
           "--mute-audio",
         ],
       })
@@ -79,22 +111,29 @@ export class StreamUrlExtractor {
 
   async extractStreamUrl(embedUrl, options = {}) {
     const timeout = options.timeout ?? 45000;
+    const signal = options.signal;
+    signal?.throwIfAborted();
     const deadline = Date.now() + timeout;
     const origin = new URL(embedUrl).origin;
 
-    console.log(
-      `[URL EXTRACTOR] Extracting direct stream URL from: ${embedUrl}`,
-    );
+    console.log(`[URL EXTRACTOR] Inspecting ${redactUrl(embedUrl)}.`);
 
     const browser = await this.ensureBrowser();
     const page = await browser.newPage();
+    if (signal?.aborted) {
+      await page.close().catch(() => {});
+      signal.throwIfAborted();
+    }
     const candidates = new Set();
+    const adaptiveOrigins = new Set();
 
     const closePopup = async (target) => {
       if (target.type() !== "page") return;
       const opened = await target.page().catch(() => null);
       if (opened && opened !== page) await opened.close().catch(() => {});
     };
+    const closePage = () => void page.close().catch(() => {});
+    signal?.addEventListener("abort", closePage, { once: true });
     browser.on("targetcreated", closePopup);
 
     try {
@@ -102,9 +141,6 @@ export class StreamUrlExtractor {
       await page.setRequestInterception(true);
 
       page.on("request", (request) => {
-        const url = request.url();
-        if (scoreCandidate(url) > 0) candidates.add(url);
-
         if (BLOCKED_RESOURCE_TYPES.has(request.resourceType())) {
           request.abort().catch(() => {});
           return;
@@ -117,12 +153,19 @@ export class StreamUrlExtractor {
         const contentType = (
           response.headers()["content-type"] || ""
         ).toLowerCase();
-        if (
-          contentType.includes("mpegurl") ||
-          contentType.includes("dash+xml") ||
-          contentType.includes("video/mp4") ||
-          scoreCandidate(url) > 0
-        ) {
+        const origin = urlOrigin(url);
+        if (MANIFEST_PATTERN.test(url) || isAdaptiveContentType(contentType)) {
+          if (origin) {
+            adaptiveOrigins.add(origin);
+            for (const candidate of candidates) {
+              if (urlOrigin(candidate) === origin) candidates.delete(candidate);
+            }
+          }
+          return;
+        }
+        if (isSegmentUrl(url) || (origin && adaptiveOrigins.has(origin)))
+          return;
+        if (isProgressiveContentType(contentType) || scoreCandidate(url) > 0) {
           candidates.add(url);
         }
       });
@@ -136,6 +179,7 @@ export class StreamUrlExtractor {
         .catch((err) => err);
 
       if (navigationError) {
+        if (signal?.aborted) throw signal.reason ?? navigationError;
         const fatal = FATAL_NAVIGATION_ERRORS.some((code) =>
           navigationError.message.includes(code),
         );
@@ -146,9 +190,11 @@ export class StreamUrlExtractor {
       }
 
       while (candidates.size === 0 && Date.now() < deadline) {
+        signal?.throwIfAborted();
         await this.triggerPlayback(page);
         await new Promise((resolve) => setTimeout(resolve, 1500));
       }
+      signal?.throwIfAborted();
 
       if (candidates.size === 0) {
         const domUrl = await this.readVideoElementSource(page);
@@ -167,7 +213,7 @@ export class StreamUrlExtractor {
 
       if (!best) {
         console.warn(
-          `[URL EXTRACTOR] No direct stream URL found for: ${embedUrl}`,
+          `[URL EXTRACTOR] No direct stream URL found for ${redactUrl(embedUrl)}.`,
         );
         return null;
       }
@@ -183,7 +229,7 @@ export class StreamUrlExtractor {
       }
 
       console.log(
-        `[URL EXTRACTOR] Selected stream (${candidates.size} candidates): ${best}`,
+        `[URL EXTRACTOR] Selected one of ${candidates.size} candidates from ${redactUrl(best)}.`,
       );
       return {
         url: best,
@@ -193,6 +239,7 @@ export class StreamUrlExtractor {
         ...dimensions,
       };
     } finally {
+      signal?.removeEventListener("abort", closePage);
       browser.off("targetcreated", closePopup);
       await page.close().catch(() => {});
     }
@@ -255,7 +302,7 @@ export class StreamUrlExtractor {
     return page
       .evaluate(() => {
         const matches = (value) =>
-          value && /\.(m3u8|mpd|mp4|mkv|webm)(\?|$)/i.test(value);
+          value && /\.(mp4|mkv|webm|mov|avi|flv)(\?|$)/i.test(value);
         for (const video of document.querySelectorAll("video")) {
           if (matches(video.src)) return video.src;
           for (const source of video.querySelectorAll("source")) {

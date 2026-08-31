@@ -33,6 +33,32 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function waitForSignal(promise, signal) {
+  if (!signal) return promise;
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason ?? new Error("Request aborted."));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    Promise.resolve(promise).then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 function describeError(err) {
   if (!err) return "unknown error";
   const code = err.cause?.code || err.code;
@@ -140,7 +166,8 @@ function relevance(item, simplifiedQuery) {
   return score;
 }
 
-export async function searchTMDB(query) {
+export async function searchTMDB(query, { signal } = {}) {
+  signal?.throwIfAborted();
   const trimmed = (query || "").trim();
   if (!trimmed) return [];
 
@@ -156,7 +183,7 @@ export async function searchTMDB(query) {
   const inFlight = inFlightSearches.get(cacheKey);
   if (inFlight) {
     console.log(`[TMDB SEARCH] Reusing in-flight lookup for "${trimmed}"`);
-    return inFlight;
+    return waitForSignal(inFlight, signal);
   }
 
   const task = (async () => {
@@ -223,11 +250,11 @@ export async function searchTMDB(query) {
   });
 
   inFlightSearches.set(cacheKey, task);
-  return task;
+  return waitForSignal(task, signal);
 }
 
-export async function findMedia(query, preferredType = null) {
-  const results = await searchTMDB(query);
+export async function findMedia(query, preferredType = null, options = {}) {
+  const results = await searchTMDB(query, options);
   if (results.length === 0) return null;
   if (!preferredType) return results[0];
   return results.find((item) => item.type === preferredType) || null;

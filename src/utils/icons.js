@@ -1,4 +1,7 @@
-import iconMap from "./icon-map.json" with { type: "json" };
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
+const iconMap = require("./icon-map.json");
 
 const resolved = {};
 const resolvedObjects = {};
@@ -68,11 +71,3 @@ export function emojiObj(key) {
   if (resolvedObjects[key] !== undefined) return resolvedObjects[key];
   return iconMap[key]?.fallback ?? "";
 }
-
-/**
- * Convenience: icon(key) + " " — handy for embed titles.
- * e.g.  `${i("SUCCESS")}Done` → "✅ Done"
- * @param {string} key
- * @returns {string}
- */
-export const i = (key) => `${icon(key)} `;

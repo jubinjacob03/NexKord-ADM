@@ -12,15 +12,17 @@ function parseRate(rate) {
 
 export async function probeSource(
   input,
-  headers = {},
   timeoutMs = 15000,
   attempts = 2,
+  signal,
 ) {
   let lastError = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    signal?.throwIfAborted();
     try {
-      return await probeOnce(input, headers, timeoutMs);
+      return await probeOnce(input, timeoutMs, signal);
     } catch (err) {
+      if (signal?.aborted) throw signal.reason ?? err;
       lastError = err;
       if (attempt < attempts) {
         console.warn(
@@ -32,19 +34,25 @@ export async function probeSource(
   throw lastError;
 }
 
-async function probeOnce(input, headers, timeoutMs) {
-  const args = ["-v", "error", "-hide_banner"];
-
-  if (/^https?:\/\//i.test(input)) {
-    const headerLines = Object.entries(headers)
-      .map(([key, value]) => `${key}: ${value}`)
-      .join("\r\n");
-    if (headerLines) args.push("-headers", `${headerLines}\r\n`);
-    args.push("-rw_timeout", String(timeoutMs * 1000));
-    // Enough to read the header of any sane container; keeps the probe from
-    // downloading half the film just to report the resolution.
-    args.push("-probesize", "2M", "-analyzeduration", "2M");
+async function probeOnce(input, timeoutMs, signal) {
+  const source = String(input);
+  const windowsPath = /^[A-Za-z]:[\\/]/.test(source);
+  const hasScheme = !windowsPath && /^[A-Za-z][A-Za-z\d+.-]*:/.test(source);
+  if (hasScheme) {
+    throw new Error("Media probing is limited to local files.");
   }
+
+  const args = [
+    "-v",
+    "error",
+    "-hide_banner",
+    "-protocol_whitelist",
+    "file,pipe",
+    "-probesize",
+    "2M",
+    "-analyzeduration",
+    "2M",
+  ];
 
   args.push(
     "-show_entries",
@@ -53,38 +61,48 @@ async function probeOnce(input, headers, timeoutMs) {
     "format=bit_rate,duration",
     "-of",
     "json",
-    input,
+    source,
   );
 
   const { stdout } = await run("ffprobe", args, {
     maxBuffer: 8 * 1024 * 1024,
+    signal,
     timeout: timeoutMs,
+    windowsHide: true,
   });
 
   const parsed = JSON.parse(stdout);
   const streams = parsed.streams || [];
 
-  // An adaptive manifest exposes every rendition as a separate stream.
   const videoStreams = streams
-    .filter((s) => s.codec_type === "video")
-    .map((s, order) => {
-      const fps = parseRate(s.avg_frame_rate) || parseRate(s.r_frame_rate);
+    .filter((stream) => stream.codec_type === "video")
+    .map((stream, order) => {
+      const fps =
+        parseRate(stream.avg_frame_rate) || parseRate(stream.r_frame_rate);
+      const absoluteIndex = Number(stream.index);
       return {
+        index:
+          Number.isInteger(absoluteIndex) && absoluteIndex >= 0
+            ? absoluteIndex
+            : null,
         order,
-        width: Number(s.width) || 0,
-        height: Number(s.height) || 0,
+        width: Number(stream.width) || 0,
+        height: Number(stream.height) || 0,
         fps:
           Number.isFinite(fps) && fps > 0 ? Math.round(fps * 1000) / 1000 : 0,
-        codec: s.codec_name || "unknown",
-        bitrateKbps: Math.round((Number(s.bit_rate) || 0) / 1000),
+        codec: stream.codec_name || "unknown",
+        bitrateKbps: Math.round((Number(stream.bit_rate) || 0) / 1000),
       };
     })
     .sort((a, b) => b.width - a.width);
 
-  if (videoStreams.length === 0)
+  if (videoStreams.length === 0) {
     throw new Error("no video stream found in source");
+  }
 
-  const audioCount = streams.filter((s) => s.codec_type === "audio").length;
+  const audioCount = streams.filter(
+    (stream) => stream.codec_type === "audio",
+  ).length;
   const best = videoStreams[0];
   const formatBitrate = Number(parsed.format?.bit_rate) || 0;
 
@@ -104,23 +122,35 @@ function selectRendition(probe, maxWidth) {
   if (!probe?.videoStreams?.length) return null;
 
   const tolerated = Math.round(maxWidth * 1.05);
-  const withinCap = probe.videoStreams.filter((s) => s.width <= tolerated);
+  const withinCap = probe.videoStreams.filter(
+    (stream) => stream.width <= tolerated,
+  );
   return withinCap[0] || probe.videoStreams[probe.videoStreams.length - 1];
 }
 
 export function planEncoding(probe, limits) {
-  const plan = { reason: [], excludeFlags: [] };
+  const plan = {
+    reason: [],
+    excludeFlags: [],
+    selectedVideoStreamIndex: null,
+  };
 
   const chosen = selectRendition(probe, limits.maxWidth);
+  if (Number.isInteger(chosen?.index) && chosen.index >= 0) {
+    plan.selectedVideoStreamIndex = chosen.index;
+  }
 
   if (chosen && probe.videoStreams.length > 1) {
     plan.reason.push(
       `rendition ${chosen.width}x${chosen.height} of ${probe.videoStreams.length}`,
     );
     for (const stream of probe.videoStreams) {
-      if (stream.order !== chosen.order) {
-        plan.excludeFlags.push("-map", `-0:v:${stream.order}?`);
-      }
+      if (stream.order === chosen.order) continue;
+      const streamSpecifier =
+        Number.isInteger(stream.index) && stream.index >= 0
+          ? `-0:${stream.index}?`
+          : `-0:v:${stream.order}?`;
+      plan.excludeFlags.push("-map", streamSpecifier);
     }
   }
 
@@ -131,8 +161,6 @@ export function planEncoding(probe, limits) {
   const sourceWidth = chosen?.width ?? probe?.width ?? 0;
   const sourceHeight = chosen?.height ?? probe?.height ?? 0;
   const sourceFps = chosen?.fps ?? probe?.fps ?? 0;
-
-  // Allow ~5% overshoot before triggering a rescale pass.
   const widthCeiling = Math.round(limits.maxWidth * 1.05);
 
   if (limits.forceWidth > 0) {

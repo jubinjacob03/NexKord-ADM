@@ -5,12 +5,14 @@ import {
   ActionRowBuilder,
   StringSelectMenuBuilder,
   MessageFlags,
+  PermissionFlagsBits,
 } from "discord.js";
 import {
   buildModDashboard,
   buildSearchResults,
   buildShowtimePoster,
   buildMovieCard,
+  buildShowtimesBoard,
   BTN,
 } from "./dashboard.js";
 import { initScreens, getScreens, getScreen } from "./screens.js";
@@ -20,73 +22,340 @@ import {
   getUpcoming,
   setShowMessageId,
   getDueShows,
-  setShowStatus,
+  claimShowForDispatch,
+  markShowDispatchAttempting,
+  completeShowDispatch,
+  markShowDispatchUnknown,
   expireStaleShows,
 } from "./schedule.js";
 import {
-  loadLibrary,
+  initializeLibrary,
   addMovie,
   addVariant,
-  findMovies,
   getMovie,
   getAllMovies,
-  getMovieByTmdbId,
   getBestVariant,
+  getPlayableVariant,
+  qualityRank,
 } from "./library.js";
 import {
   downloadFromUrl,
   getDownloadProgress,
   cancelDownload,
+  validateDownloadRequest,
+  initializeDownloads,
+  shutdownDownloads,
+  removeInterruptedPartials,
 } from "./downloader.js";
 import { searchAll } from "./tmdb.js";
 import { eReply } from "../../utils/embed.js";
 import { auditLog } from "../../utils/logger.js";
-
-function qualityRank(q) {
-  const map = { "4k": 4, "2160p": 4, "1080p": 3, "720p": 2, "480p": 1 };
-  return map[q?.toLowerCase()] || 0;
-}
+import path from "path";
+import {
+  readJsonFileSync,
+  writeJsonFileAtomicSync,
+} from "../../utils/jsonStore.js";
 
 let dashboardChannelId = null;
 let announcementChannelId = null;
 let dashboardChannel = null;
 let announcementChannel = null;
-let dashboardMessageId = null;
+let showtimesChannelId = null;
+let showtimesChannel = null;
 let admClient = null;
 
+const uiStateFile = path.join(process.cwd(), "data", "cinema-ui-state.json");
 const searchCache = new Map();
-const pickCache = new Map();
+const refreshQueues = {
+  dashboard: Promise.resolve(),
+  showtimes: Promise.resolve(),
+};
+let retirementQueue = Promise.resolve();
+let activeChannelRecovery = null;
+let uiState = {
+  version: 1,
+  dashboard: null,
+  showtimes: null,
+  retirements: [],
+};
+const STATIC_MODERATOR_BUTTON_IDS = new Set(Object.values(BTN));
 
-async function sendToScreen(screenId, command) {
+function parseIdSet(value) {
+  return new Set(
+    String(value || "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter((id) => /^\d{16,22}$/.test(id)),
+  );
+}
+
+function isCinemaModerator(interaction) {
+  const configuredGuildId =
+    process.env.CINEMA_GUILD_ID || process.env.GUILD_ID || "";
+  if (!interaction.guildId) return false;
+  if (configuredGuildId && interaction.guildId !== configuredGuildId) {
+    return false;
+  }
+
+  const allowedUsers = parseIdSet(process.env.CINEMA_MODERATOR_USER_IDS);
+  if (allowedUsers.has(interaction.user.id)) return true;
+  if (interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+    return true;
+  }
+
+  const allowedRoles = parseIdSet(process.env.CINEMA_MODERATOR_ROLE_IDS);
+  const memberRoles = interaction.member?.roles;
+  if (memberRoles?.cache) {
+    return [...allowedRoles].some((roleId) => memberRoles.cache.has(roleId));
+  }
+  if (Array.isArray(memberRoles)) {
+    return memberRoles.some((roleId) => allowedRoles.has(roleId));
+  }
+  return false;
+}
+
+async function requireCinemaModerator(interaction) {
+  if (isCinemaModerator(interaction)) return true;
+  await interaction.reply(
+    eReply(
+      "Not Authorized",
+      "You need Manage Server or an approved Cinema moderator role to use this control.",
+    ),
+  );
+  return false;
+}
+
+function validManagedMessage(value) {
+  return (
+    value === null ||
+    (value &&
+      typeof value.channelId === "string" &&
+      typeof value.messageId === "string")
+  );
+}
+
+function validUiState(value) {
+  return (
+    value?.version === 1 &&
+    validManagedMessage(value.dashboard) &&
+    validManagedMessage(value.showtimes) &&
+    (value.retirements === undefined ||
+      (Array.isArray(value.retirements) &&
+        value.retirements.every(
+          (record) => record !== null && validManagedMessage(record),
+        )))
+  );
+}
+
+function loadUiState() {
+  uiState = readJsonFileSync(uiStateFile, {
+    fallback: {
+      version: 1,
+      dashboard: null,
+      showtimes: null,
+      retirements: [],
+    },
+    validate: validUiState,
+    label: "cinema UI state",
+  });
+  if (!Array.isArray(uiState.retirements)) {
+    uiState.retirements = [];
+    saveUiState();
+  }
+}
+
+function saveUiState() {
+  writeJsonFileAtomicSync(uiStateFile, uiState, { pretty: true });
+}
+
+function unknownMessage(error) {
+  return error?.code === 10008 || error?.rawError?.code === 10008;
+}
+
+function queueRefresh(kind, operation) {
+  const queued = refreshQueues[kind].catch(() => {}).then(operation);
+  refreshQueues[kind] = queued;
+  return queued;
+}
+
+async function retireManagedMessage(record) {
+  if (!record || !admClient) return false;
+  try {
+    const channel = await admClient.channels.fetch(record.channelId);
+    const message = await channel?.messages?.fetch(record.messageId);
+    if (message?.deletable !== false) await message?.delete();
+    return true;
+  } catch (error) {
+    if (unknownMessage(error)) return true;
+    console.warn(
+      `[CINEMA] Could not retire managed message ${record.messageId}: ${error.message}`,
+    );
+    return false;
+  }
+}
+
+function sameManagedMessage(left, right) {
+  return (
+    left?.channelId === right?.channelId && left?.messageId === right?.messageId
+  );
+}
+
+async function executePendingRetirements() {
+  const pending = [...uiState.retirements];
+  if (pending.length === 0) return;
+  const retired = [];
+  for (const record of pending) {
+    if (await retireManagedMessage(record)) retired.push(record);
+  }
+  if (retired.length === 0) return;
+  const previous = uiState.retirements;
+  uiState.retirements = previous.filter(
+    (record) => !retired.some((item) => sameManagedMessage(item, record)),
+  );
+  try {
+    saveUiState();
+  } catch (error) {
+    uiState.retirements = previous;
+    throw error;
+  }
+}
+
+function retryPendingRetirements() {
+  const queued = retirementQueue
+    .catch(() => {})
+    .then(executePendingRetirements);
+  retirementQueue = queued;
+  return queued;
+}
+
+async function replaceManagedMessage(kind, channel, payload, previous) {
+  const message = await channel.send(payload);
+  const replacement = { channelId: channel.id, messageId: message.id };
+  const previousRetirements = uiState.retirements;
+  const shouldRetire = previous && !sameManagedMessage(previous, replacement);
+  uiState[kind] = replacement;
+  if (
+    shouldRetire &&
+    !uiState.retirements.some((record) => sameManagedMessage(record, previous))
+  ) {
+    uiState.retirements = [...uiState.retirements, previous];
+  }
+  try {
+    saveUiState();
+  } catch (error) {
+    uiState[kind] = previous;
+    uiState.retirements = previousRetirements;
+    await message.delete().catch(() => {});
+    throw error;
+  }
+
+  if (shouldRetire) await retryPendingRetirements();
+  return message;
+}
+
+async function updateManagedMessage(kind, channel, payload) {
+  const record = uiState[kind];
+  if (record?.channelId === channel.id) {
+    try {
+      const message = await channel.messages.fetch(record.messageId);
+      await message.edit(payload);
+      return message;
+    } catch (error) {
+      if (!unknownMessage(error)) throw error;
+    }
+  }
+
+  return replaceManagedMessage(kind, channel, payload, record);
+}
+
+function parsePositiveInteger(value) {
+  const normalized = String(value || "").trim();
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function movieModalId(prefix, movieId) {
+  const customId = `${prefix}${movieId}`;
+  return customId.length <= 100 ? customId : null;
+}
+
+function cacheSearchResults(userId, results) {
+  const entry = { results };
+  searchCache.set(userId, entry);
+  setTimeout(() => {
+    if (searchCache.get(userId) === entry) searchCache.delete(userId);
+  }, 300_000).unref?.();
+}
+
+async function sendToScreen(screenId, command, onAttempt) {
+  if (!admClient) throw new Error("Cinema client is not initialized.");
   const screen = getScreen(screenId);
-  if (!screen?.channelId) return;
-  const ch = await admClient.channels.fetch(screen.channelId).catch(() => null);
-  if (!ch) return;
-  const msg = `${screen.prefix}${command}`;
-  await ch.send(msg);
-  auditLog("info", "CINEMA", `Screen ${screen.name}: ${msg}`);
+  if (!screen) throw new Error(`Screen ${screenId} is not configured.`);
+  if (!screen.channelId) {
+    throw new Error(`${screen.name} has no command channel configured.`);
+  }
+  const channel = await admClient.channels.fetch(screen.channelId);
+  if (!channel?.isTextBased?.() || typeof channel.send !== "function") {
+    throw new Error(`${screen.name} command channel is not sendable.`);
+  }
+  const message = `${screen.prefix}${command}`;
+  onAttempt?.();
+  const sent = await channel.send(message);
+  const commandName = String(command).trim().split(/\s+/, 1)[0] || "unknown";
+  auditLog(
+    "info",
+    "CINEMA",
+    `Dispatched ${commandName} command to ${screen.name}`,
+  );
+  return sent;
+}
+
+async function startBackgroundDownload(request, movieId, variantId) {
+  const progress = await downloadFromUrl(
+    request.url,
+    movieId,
+    variantId,
+    request.filename,
+  );
+  void progress.promise.catch((error) => {
+    console.error(
+      `[CINEMA] Background download ${progress.filename} failed: ${error.message}`,
+    );
+  });
+  return progress;
 }
 
 async function refreshDashboard() {
   if (!dashboardChannel) return;
-  const shows = getUpcoming();
-  const payload = buildModDashboard(shows);
-
-  try {
-    if (dashboardMessageId) {
-      const existing = await dashboardChannel.messages
-        .fetch(dashboardMessageId)
-        .catch(() => null);
-      if (existing) {
-        await existing.edit(payload);
-        return;
-      }
+  return queueRefresh("dashboard", async () => {
+    try {
+      await updateManagedMessage(
+        "dashboard",
+        dashboardChannel,
+        buildModDashboard(getUpcoming()),
+      );
+    } catch (error) {
+      console.error(`[CINEMA] Dashboard refresh failed: ${error.message}`);
     }
-    const msg = await dashboardChannel.send(payload);
-    dashboardMessageId = msg.id;
-  } catch (err) {
-    console.error(`[CINEMA] Dashboard post failed: ${err.message}`);
-  }
+  });
+}
+
+async function refreshShowtimesBoard() {
+  if (!showtimesChannel) return;
+  return queueRefresh("showtimes", async () => {
+    try {
+      await updateManagedMessage(
+        "showtimes",
+        showtimesChannel,
+        buildShowtimesBoard(getUpcoming()),
+      );
+    } catch (error) {
+      console.error(
+        `[CINEMA] Showtimes board refresh failed: ${error.message}`,
+      );
+    }
+  });
 }
 
 async function postAnnouncement(show) {
@@ -99,7 +368,6 @@ async function postAnnouncement(show) {
     posterUrl: show.posterUrl,
     showtimeUnix: show.showtimeUnix,
     screenName: screen?.name || "Screen",
-    voiceChannelId: screen?.voiceChannelId,
   });
 
   try {
@@ -114,46 +382,113 @@ async function postAnnouncement(show) {
 const SHOWTIME_TICK_MS = 30_000;
 const SHOWTIME_GRACE_SECONDS = 900;
 let showtimeTimer = null;
+let activeShowtimeTick = null;
 
 function resolvePlaybackCommand(show) {
-  const movie = show.tmdbId ? getMovieByTmdbId(show.tmdbId) : null;
-  if (!movie) return `movie ${show.title}`;
-
-  const variant = getBestVariant(movie.id);
-  if (variant?.filePath) return `play ${variant.filePath}`;
-  return `movie ${movie.title || show.title}`;
+  if (
+    show.playback?.version !== 1 ||
+    !show.playback.movieId ||
+    !show.playback.variantId
+  ) {
+    throw new Error("Showtime has no verified playback binding.");
+  }
+  const variant = getPlayableVariant(
+    show.playback.movieId,
+    show.playback.variantId,
+  );
+  if (!variant?.filePath) {
+    throw new Error("The exact scheduled media variant is no longer playable.");
+  }
+  const relativePath = path.relative(
+    process.cwd(),
+    path.resolve(variant.filePath),
+  );
+  if (
+    !relativePath ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath)
+  ) {
+    throw new Error(
+      "The scheduled media path is outside the shared data root.",
+    );
+  }
+  const portablePath = relativePath.split(path.sep).join("/");
+  return `play ${portablePath}`;
 }
 
-async function runShowtimeTick() {
+async function executeShowtimeTick() {
   const due = getDueShows(SHOWTIME_GRACE_SECONDS);
 
-  for (const show of due) {
-    const screen = getScreen(show.screenId);
-    if (!screen) {
-      setShowStatus(show.id, "failed");
+  for (const candidate of due) {
+    let show;
+    try {
+      show = claimShowForDispatch(candidate.id, SHOWTIME_GRACE_SECONDS);
+    } catch (error) {
       auditLog(
         "error",
         "CINEMA",
-        `Showtime for "${show.title}" skipped: screen ${show.screenId} not configured`,
+        `Could not claim showtime "${candidate.title}": ${error.message}`,
       );
       continue;
     }
+    if (!show) continue;
 
-    setShowStatus(show.id, "live");
+    const screen = getScreen(show.screenId);
+    let sendAttempted = false;
     try {
-      await sendToScreen(show.screenId, resolvePlaybackCommand(show));
+      if (!screen) {
+        throw new Error(`Screen ${show.screenId} is not configured.`);
+      }
+      const command = resolvePlaybackCommand(show);
+      await sendToScreen(show.screenId, command, () => {
+        if (!markShowDispatchAttempting(show.id)) {
+          throw new Error("Showtime dispatch claim changed unexpectedly.");
+        }
+        sendAttempted = true;
+      });
+      if (!completeShowDispatch(show.id, "dispatched")) {
+        throw new Error("Showtime dispatch state changed unexpectedly.");
+      }
       auditLog(
         "info",
         "CINEMA",
-        `Showtime fired: "${show.title}" on ${screen.name}`,
+        `Showtime dispatched: "${show.title}" on ${screen.name}`,
       );
-    } catch (err) {
-      setShowStatus(show.id, "failed");
-      auditLog(
-        "error",
-        "CINEMA",
-        `Showtime failed for "${show.title}": ${err.message}`,
-      );
+    } catch (error) {
+      if (sendAttempted) {
+        try {
+          markShowDispatchUnknown(
+            show.id,
+            "A dispatch was attempted, but delivery could not be confirmed.",
+          );
+        } catch (persistenceError) {
+          auditLog(
+            "error",
+            "CINEMA",
+            `Could not persist uncertain dispatch for "${show.title}": ${persistenceError.message}`,
+          );
+        }
+        auditLog(
+          "warn",
+          "CINEMA",
+          `Showtime delivery is uncertain for "${show.title}": ${error.message}`,
+        );
+      } else {
+        try {
+          completeShowDispatch(show.id, "failed", error.message);
+        } catch (persistenceError) {
+          auditLog(
+            "error",
+            "CINEMA",
+            `Could not persist failed showtime "${show.title}": ${persistenceError.message}`,
+          );
+        }
+        auditLog(
+          "error",
+          "CINEMA",
+          `Showtime failed for "${show.title}": ${error.message}`,
+        );
+      }
     }
   }
 
@@ -166,43 +501,123 @@ async function runShowtimeTick() {
     );
   }
 
-  if (due.length || missed.length) await refreshDashboard();
+  if (due.length || missed.length) {
+    await Promise.allSettled([refreshDashboard(), refreshShowtimesBoard()]);
+  }
+}
+
+async function runShowtimeTick() {
+  if (activeShowtimeTick) return activeShowtimeTick;
+  activeShowtimeTick = executeShowtimeTick().finally(() => {
+    activeShowtimeTick = null;
+  });
+  return activeShowtimeTick;
+}
+
+async function fetchConfiguredChannel(client, channelId, label) {
+  if (!channelId) {
+    console.warn(`[CINEMA] ${label} channel is not configured.`);
+    return null;
+  }
+  try {
+    return await client.channels.fetch(channelId);
+  } catch (error) {
+    console.warn(
+      `[CINEMA] Could not fetch ${label} channel ${channelId}: ${error.message}`,
+    );
+    return null;
+  }
+}
+
+async function executeChannelRecovery() {
+  if (!admClient) return;
+  const hadDashboard = Boolean(dashboardChannel);
+  const hadShowtimes = Boolean(showtimesChannel);
+  [dashboardChannel, announcementChannel, showtimesChannel] = await Promise.all(
+    [
+      dashboardChannel ||
+        (dashboardChannelId
+          ? fetchConfiguredChannel(admClient, dashboardChannelId, "dashboard")
+          : null),
+      announcementChannel ||
+        (announcementChannelId
+          ? fetchConfiguredChannel(
+              admClient,
+              announcementChannelId,
+              "announcement",
+            )
+          : null),
+      showtimesChannel ||
+        (showtimesChannelId
+          ? fetchConfiguredChannel(admClient, showtimesChannelId, "showtimes")
+          : null),
+    ],
+  );
+
+  const recovery = [retryPendingRetirements()];
+  if (!hadDashboard && dashboardChannel) recovery.push(refreshDashboard());
+  if (!hadShowtimes && showtimesChannel) {
+    recovery.push(refreshShowtimesBoard());
+  }
+  await Promise.allSettled(recovery);
+}
+
+function recoverUnavailableChannels() {
+  if (activeChannelRecovery) return activeChannelRecovery;
+  activeChannelRecovery = executeChannelRecovery().finally(() => {
+    activeChannelRecovery = null;
+  });
+  return activeChannelRecovery;
 }
 
 export async function initCinema(client) {
   admClient = client;
   initScreens();
   loadSchedule();
-  loadLibrary();
+  initializeLibrary();
+  initializeDownloads();
+  loadUiState();
 
-  dashboardChannelId = process.env.CINEMA_DASHBOARD_CHANNEL_ID;
-  announcementChannelId = process.env.CINEMA_ANNOUNCEMENT_CHANNEL_ID;
-
-  if (!dashboardChannelId) {
-    console.warn("[CINEMA] CINEMA_DASHBOARD_CHANNEL_ID not set.");
-    return;
-  }
-
-  dashboardChannel = await client.channels
-    .fetch(dashboardChannelId)
-    .catch(() => null);
-  announcementChannel = announcementChannelId
-    ? await client.channels.fetch(announcementChannelId).catch(() => null)
-    : null;
-
-  if (!dashboardChannel) {
-    console.warn(
-      `[CINEMA] Could not fetch dashboard channel ${dashboardChannelId}.`,
+  const interruptedPartials = await removeInterruptedPartials();
+  if (interruptedPartials.removed > 0) {
+    auditLog(
+      "warn",
+      "CINEMA",
+      `Removed ${interruptedPartials.removed} interrupted download file${interruptedPartials.removed === 1 ? "" : "s"}`,
     );
-    return;
+  }
+  if (interruptedPartials.failed > 0) {
+    auditLog(
+      "error",
+      "CINEMA",
+      `Could not remove ${interruptedPartials.failed} interrupted download file${interruptedPartials.failed === 1 ? "" : "s"}`,
+    );
   }
 
-  await refreshDashboard();
+  dashboardChannelId = process.env.CINEMA_DASHBOARD_CHANNEL_ID || null;
+  announcementChannelId = process.env.CINEMA_ANNOUNCEMENT_CHANNEL_ID || null;
+  showtimesChannelId =
+    process.env.CINEMA_SHOWTIMES_CHANNEL_ID || announcementChannelId;
+
+  [dashboardChannel, announcementChannel, showtimesChannel] = await Promise.all(
+    [
+      fetchConfiguredChannel(client, dashboardChannelId, "dashboard"),
+      fetchConfiguredChannel(client, announcementChannelId, "announcement"),
+      fetchConfiguredChannel(client, showtimesChannelId, "showtimes"),
+    ],
+  );
+
+  await retryPendingRetirements();
+  await Promise.allSettled([refreshDashboard(), refreshShowtimesBoard()]);
 
   if (showtimeTimer) clearInterval(showtimeTimer);
+  await runShowtimeTick();
   showtimeTimer = setInterval(() => {
-    runShowtimeTick().catch((err) =>
-      console.error(`[CINEMA] Showtime tick failed: ${err.message}`),
+    runShowtimeTick().catch((error) =>
+      console.error(`[CINEMA] Showtime tick failed: ${error.message}`),
+    );
+    recoverUnavailableChannels().catch((error) =>
+      console.error(`[CINEMA] Channel recovery failed: ${error.message}`),
     );
   }, SHOWTIME_TICK_MS);
   showtimeTimer.unref?.();
@@ -210,6 +625,20 @@ export async function initCinema(client) {
   console.log(
     `[CINEMA] Cinema system initialised (showtime tick every ${SHOWTIME_TICK_MS / 1000}s).`,
   );
+}
+
+export async function shutdownCinema() {
+  const downloadsShutdown = shutdownDownloads();
+  if (showtimeTimer) {
+    clearInterval(showtimeTimer);
+    showtimeTimer = null;
+  }
+  if (activeShowtimeTick) await activeShowtimeTick.catch(() => {});
+  if (activeChannelRecovery) await activeChannelRecovery.catch(() => {});
+  await Promise.allSettled(Object.values(refreshQueues));
+  await retirementQueue.catch(() => {});
+  await downloadsShutdown;
+  admClient = null;
 }
 
 export async function handleCinemaButton(interaction) {
@@ -223,8 +652,10 @@ export async function handleCinemaButton(interaction) {
   }
 
   if (id.startsWith("cinema:screen_join_")) {
-    const screenId = parseInt(id.replace("cinema:screen_join_", ""), 10);
-    const screen = getScreen(screenId);
+    const screenId = parsePositiveInteger(
+      id.slice("cinema:screen_join_".length),
+    );
+    const screen = screenId ? getScreen(screenId) : null;
     if (!screen?.voiceChannelId) {
       await interaction.reply(
         eReply("No VC", "This screen has no voice channel configured."),
@@ -238,16 +669,44 @@ export async function handleCinemaButton(interaction) {
     return true;
   }
 
+  if (STATIC_MODERATOR_BUTTON_IDS.has(id)) {
+    const dashboard = uiState.dashboard;
+    if (
+      !dashboard ||
+      !dashboardChannel ||
+      dashboardChannel.id !== dashboard.channelId ||
+      dashboardChannelId !== dashboard.channelId ||
+      interaction.channelId !== dashboard.channelId ||
+      interaction.message?.id !== dashboard.messageId
+    ) {
+      await interaction.reply(
+        eReply(
+          "Control Expired",
+          "Use the controls on the current Cinema dashboard.",
+        ),
+      );
+      return true;
+    }
+  }
+
+  if (!(await requireCinemaModerator(interaction))) return true;
+
   if (id.startsWith("cinema:pick_")) {
     await handlePick(interaction);
     return true;
   }
 
   if (id.startsWith("cinema:card_upload_")) {
-    const movieId = id.replace("cinema:card_upload_", "");
-    pickCache.set(interaction.user.id, { movieId });
+    const movieId = id.slice("cinema:card_upload_".length);
+    const modalId = movieModalId("cinema:card_upload_modal:", movieId);
+    if (!modalId || !getMovie(movieId)) {
+      await interaction.reply(
+        eReply("Not Found", "This library entry is unavailable."),
+      );
+      return true;
+    }
     const modal = new ModalBuilder()
-      .setCustomId("cinema:card_upload_modal")
+      .setCustomId(modalId)
       .setTitle("Upload Offline File")
       .addComponents(
         new ActionRowBuilder().addComponents(
@@ -278,31 +737,31 @@ export async function handleCinemaButton(interaction) {
   }
 
   if (id.startsWith("cinema:card_download_")) {
-    const movieId = id.replace("cinema:card_download_", "");
-    loadLibrary();
-    const movie = getMovie(movieId);
-    if (!movie) {
-      await interaction.reply(eReply("Not Found", "Movie not in library."));
-      return true;
-    }
-    const screens = getScreens();
-    if (screens.length > 0)
-      await sendToScreen(screens[0].id, `prepare ${movie.title}`);
     await interaction.reply(
       eReply(
-        "Downloading",
-        `Sent prefetch for **${movie.title}** to Screen 1.`,
+        "Use Offline Upload",
+        "Provider prefetch is unavailable here. Upload a validated HTTPS media file instead.",
       ),
     );
     return true;
   }
 
   if (id.startsWith("cinema:card_schedule_")) {
-    const movieId = id.replace("cinema:card_schedule_", "");
-    pickCache.set(interaction.user.id, { movieId });
+    const movieId = id.slice("cinema:card_schedule_".length);
+    const modalId = movieModalId("cinema:card_schedule_modal:", movieId);
+    const movie = getMovie(movieId);
+    if (!modalId || !movie || !getBestVariant(movieId)) {
+      await interaction.reply(
+        eReply(
+          "Movie Not Ready",
+          "A verified offline media file is required before scheduling.",
+        ),
+      );
+      return true;
+    }
     const screens = getScreens();
     const modal = new ModalBuilder()
-      .setCustomId("cinema:card_schedule_modal")
+      .setCustomId(modalId)
       .setTitle("Schedule Showtime")
       .addComponents(
         new ActionRowBuilder().addComponents(
@@ -325,8 +784,6 @@ export async function handleCinemaButton(interaction) {
     return true;
   }
 
-  const screens = getScreens();
-
   switch (id) {
     case BTN.SEARCH: {
       const modal = new ModalBuilder()
@@ -347,7 +804,6 @@ export async function handleCinemaButton(interaction) {
     }
 
     case BTN.SCHEDULE: {
-      loadLibrary();
       const movies = getAllMovies().filter((m) =>
         m.variants.some(
           (v) => v.status === "offline" || v.status === "downloaded",
@@ -391,11 +847,18 @@ export async function handleCinemaButton(interaction) {
         progress.totalBytes > 0
           ? `${Math.round((progress.bytes / progress.totalBytes) * 100)}%`
           : `${(progress.bytes / 1e6).toFixed(1)} MB`;
-      const status = progress.done
-        ? "✅ Complete"
-        : progress.error
-          ? `❌ ${progress.error}`
-          : `⬇️ ${pct}`;
+      const status =
+        progress.state === "completed"
+          ? "✅ Complete"
+          : progress.state === "cancelled"
+            ? "⏹️ Cancelled"
+            : progress.state === "timed_out"
+              ? "⏱️ Timed out"
+              : progress.state === "failed"
+                ? `❌ ${progress.error || "Failed"}`
+                : progress.state === "cancelling"
+                  ? "⏳ Cancelling"
+                  : `⬇️ ${pct}`;
       await interaction.reply(
         eReply("Download Progress", `**${progress.filename}**\n${status}`),
       );
@@ -404,13 +867,13 @@ export async function handleCinemaButton(interaction) {
 
     case BTN.CANCEL: {
       const progress = getDownloadProgress();
-      if (!progress || progress.done) {
+      if (!progress || progress.state !== "running") {
         await interaction.reply(
           eReply("Nothing to Cancel", "No active download."),
         );
         return true;
       }
-      const cancelled = cancelDownload(progress.movieId);
+      const cancelled = cancelDownload(progress.jobId);
       if (!cancelled) {
         await interaction.reply(
           eReply("Nothing to Cancel", "That download already finished."),
@@ -420,8 +883,8 @@ export async function handleCinemaButton(interaction) {
 
       await interaction.reply(
         eReply(
-          "Cancelled",
-          `Stopped downloading **${cancelled.filename}** and removed the partial file.`,
+          "Cancellation Requested",
+          `Stopping **${cancelled.filename}**. The partial file will be removed after the transfer closes.`,
         ),
       );
       await refreshDashboard();
@@ -468,7 +931,6 @@ export async function handleCinemaButton(interaction) {
     }
 
     case BTN.LIBRARY: {
-      loadLibrary();
       const movies = getAllMovies();
       const offlineMovies = movies.filter((m) =>
         m.variants.some(
@@ -499,7 +961,7 @@ export async function handleCinemaButton(interaction) {
 
     case BTN.REFRESH:
       await interaction.deferUpdate();
-      await refreshDashboard();
+      await Promise.allSettled([refreshDashboard(), refreshShowtimesBoard()]);
       return true;
 
     default:
@@ -508,14 +970,15 @@ export async function handleCinemaButton(interaction) {
 }
 
 async function handlePick(interaction) {
-  const parts = interaction.customId.split("_");
-  const tmdbId = parts[1];
-  const type = parts[2];
-  const userId = interaction.user.id;
-
-  const results = searchCache.get(userId);
-  const picked = results?.find(
-    (r) => String(r.id) === tmdbId && r.type === type,
+  const match = interaction.customId.match(/^cinema:pick_(\d+)_(movie|tv)$/);
+  if (!match) {
+    await interaction.reply(eReply("Invalid Selection", "Search again."));
+    return;
+  }
+  const [, tmdbId, type] = match;
+  const cached = searchCache.get(interaction.user.id);
+  const picked = cached?.results.find(
+    (result) => String(result.id) === tmdbId && result.type === type,
   );
   if (!picked) {
     await interaction.reply(
@@ -524,9 +987,6 @@ async function handlePick(interaction) {
     return;
   }
 
-  pickCache.set(userId, picked);
-
-  loadLibrary();
   const movie = addMovie({
     title: picked.title,
     year: picked.year,
@@ -536,11 +996,19 @@ async function handlePick(interaction) {
     mediaType: picked.type,
   });
 
-  addVariant(movie.id, {
-    quality: "1080p",
-    source: "Provider",
-    status: "available",
-  });
+  if (
+    !movie.variants.some(
+      (variant) =>
+        variant.source === "Provider" &&
+        variant.quality.toLowerCase() === "1080p",
+    )
+  ) {
+    addVariant(movie.id, {
+      quality: "1080p",
+      source: "Provider",
+      status: "available",
+    });
+  }
 
   const card = buildMovieCard(movie);
   await interaction.reply(card);
@@ -551,8 +1019,9 @@ function parseTime(input) {
 
   const ampm = str.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
   if (ampm) {
-    let h = parseInt(ampm[1], 10);
-    const m = parseInt(ampm[2], 10);
+    let h = Number(ampm[1]);
+    const m = Number(ampm[2]);
+    if (h < 1 || h > 12 || m > 59) return null;
     if (ampm[3].toLowerCase() === "pm" && h !== 12) h += 12;
     if (ampm[3].toLowerCase() === "am" && h === 12) h = 0;
     const d = new Date();
@@ -563,8 +1032,11 @@ function parseTime(input) {
 
   const h24 = str.match(/^(\d{1,2}):(\d{2})$/);
   if (h24) {
+    const hours = Number(h24[1]);
+    const minutes = Number(h24[2]);
+    if (hours > 23 || minutes > 59) return null;
     const d = new Date();
-    d.setHours(parseInt(h24[1], 10), parseInt(h24[2], 10), 0, 0);
+    d.setHours(hours, minutes, 0, 0);
     if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
     return Math.floor(d.getTime() / 1000);
   }
@@ -576,9 +1048,10 @@ export async function handleCinemaModal(interaction) {
   if (!interaction.isModalSubmit()) return false;
   const id = interaction.customId;
   if (!id.startsWith("cinema:")) return false;
+  if (!(await requireCinemaModerator(interaction))) return true;
 
-  switch (id) {
-    case "cinema:search_modal": {
+  switch (true) {
+    case id === "cinema:search_modal": {
       const query = interaction.fields
         .getTextInputValue("cinema:search_input")
         .trim();
@@ -598,8 +1071,7 @@ export async function handleCinemaModal(interaction) {
           return true;
         }
 
-        searchCache.set(interaction.user.id, results);
-        setTimeout(() => searchCache.delete(interaction.user.id), 300000);
+        cacheSearchResults(interaction.user.id, results);
 
         const payload = buildSearchResults(results);
         await interaction.editReply(payload);
@@ -609,7 +1081,7 @@ export async function handleCinemaModal(interaction) {
       return true;
     }
 
-    case "cinema:add_movie_modal": {
+    case id === "cinema:add_movie_modal": {
       const title = interaction.fields
         .getTextInputValue("cinema:add_title")
         .trim();
@@ -622,6 +1094,14 @@ export async function handleCinemaModal(interaction) {
         .trim();
 
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+      let request;
+      try {
+        request = await validateDownloadRequest(url, filename);
+      } catch (error) {
+        await interaction.editReply(eReply("Invalid Download", error.message));
+        return true;
+      }
 
       let movieData = null;
       try {
@@ -641,28 +1121,28 @@ export async function handleCinemaModal(interaction) {
       const variant = addVariant(movie.id, {
         quality,
         source: "External",
-        sourceUrl: url,
         status: "available",
       });
-      downloadFromUrl(url, movie.id, variant.id, filename);
+      try {
+        await startBackgroundDownload(request, movie.id, variant.id);
+      } catch (error) {
+        await interaction.editReply(
+          eReply("Download Not Started", error.message),
+        );
+        return true;
+      }
 
       await interaction.editReply(
         eReply(
           "Adding & Downloading",
-          `**${movie.title}** ${movie.year ? `(${movie.year})` : ""}\n${quality} · \`${filename}\`\nDownloading in background.`,
+          `**${movie.title}** ${movie.year ? `(${movie.year})` : ""}\n${quality} · \`${request.filename}\`\nDownloading in background.`,
         ),
       );
       return true;
     }
 
-    case "cinema:card_upload_modal": {
-      const ctx = pickCache.get(interaction.user.id);
-      if (!ctx?.movieId) {
-        await interaction.reply(eReply("Expired", "Try again."));
-        return true;
-      }
-      pickCache.delete(interaction.user.id);
-
+    case id.startsWith("cinema:card_upload_modal:"): {
+      const movieId = id.slice("cinema:card_upload_modal:".length);
       const url = interaction.fields.getTextInputValue("cinema:cul_url").trim();
       const quality = interaction.fields
         .getTextInputValue("cinema:cul_quality")
@@ -671,46 +1151,53 @@ export async function handleCinemaModal(interaction) {
         .getTextInputValue("cinema:cul_filename")
         .trim();
 
-      loadLibrary();
-      const movie = getMovie(ctx.movieId);
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+      const movie = getMovie(movieId);
       if (!movie) {
-        await interaction.reply(
+        await interaction.editReply(
           eReply("Not Found", "Movie removed from library."),
         );
+        return true;
+      }
+
+      let request;
+      try {
+        request = await validateDownloadRequest(url, filename);
+      } catch (error) {
+        await interaction.editReply(eReply("Invalid Download", error.message));
         return true;
       }
 
       const variant = addVariant(movie.id, {
         quality,
         source: "External",
-        sourceUrl: url,
         status: "available",
       });
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      downloadFromUrl(url, movie.id, variant.id, filename);
+      try {
+        await startBackgroundDownload(request, movie.id, variant.id);
+      } catch (error) {
+        await interaction.editReply(
+          eReply("Download Not Started", error.message),
+        );
+        return true;
+      }
       await interaction.editReply(
         eReply(
           "Downloading",
-          `**${movie.title}** ${quality}\nFile: \`${filename}\`\nRunning in background.`,
+          `**${movie.title}** ${quality}\nFile: \`${request.filename}\`\nRunning in background.`,
         ),
       );
       return true;
     }
 
-    case "cinema:card_schedule_modal": {
-      const ctx = pickCache.get(interaction.user.id);
-      if (!ctx?.movieId) {
-        await interaction.reply(eReply("Expired", "Try again."));
-        return true;
-      }
-      pickCache.delete(interaction.user.id);
-
+    case id.startsWith("cinema:card_schedule_modal:"): {
+      const movieId = id.slice("cinema:card_schedule_modal:".length);
       const timeStr = interaction.fields
         .getTextInputValue("cinema:cs_time")
         .trim();
-      const screenNum = parseInt(
-        interaction.fields.getTextInputValue("cinema:cs_screen").trim(),
-        10,
+      const screenNum = parsePositiveInteger(
+        interaction.fields.getTextInputValue("cinema:cs_screen"),
       );
 
       const showtimeUnix = parseTime(timeStr);
@@ -720,19 +1207,28 @@ export async function handleCinemaModal(interaction) {
         );
         return true;
       }
-      const screen = getScreen(screenNum);
+      const screen = screenNum ? getScreen(screenNum) : null;
       if (!screen) {
         await interaction.reply(
-          eReply("Invalid Screen", `Screen ${screenNum} not found.`),
+          eReply("Invalid Screen", "Enter a configured screen number."),
         );
         return true;
       }
 
-      loadLibrary();
-      const movie = getMovie(ctx.movieId);
+      const movie = getMovie(movieId);
       if (!movie) {
         await interaction.reply(
           eReply("Not Found", "Movie removed from library."),
+        );
+        return true;
+      }
+      const variant = getBestVariant(movie.id);
+      if (!variant) {
+        await interaction.reply(
+          eReply(
+            "Movie Not Ready",
+            "A verified offline media file is required before scheduling.",
+          ),
         );
         return true;
       }
@@ -746,6 +1242,11 @@ export async function handleCinemaModal(interaction) {
         screenId: screen.id,
         tmdbId: movie.tmdbId,
         mediaType: movie.mediaType,
+        playback: {
+          version: 1,
+          movieId: movie.id,
+          variantId: variant.id,
+        },
       });
 
       await interaction.reply(
@@ -755,7 +1256,7 @@ export async function handleCinemaModal(interaction) {
         ),
       );
       await postAnnouncement(show);
-      await refreshDashboard();
+      await Promise.allSettled([refreshDashboard(), refreshShowtimesBoard()]);
       return true;
     }
 
@@ -767,13 +1268,23 @@ export async function handleCinemaModal(interaction) {
 export async function handleCinemaSelect(interaction) {
   if (!interaction.isStringSelectMenu()) return false;
   if (!interaction.customId.startsWith("cinema:")) return false;
+  if (!(await requireCinemaModerator(interaction))) return true;
 
   if (interaction.customId === "cinema:schedule_select") {
     const movieId = interaction.values[0];
-    pickCache.set(interaction.user.id, { movieId });
+    const modalId = movieModalId("cinema:card_schedule_modal:", movieId);
+    if (!modalId || !getMovie(movieId) || !getBestVariant(movieId)) {
+      await interaction.reply(
+        eReply(
+          "Movie Not Ready",
+          "A verified offline media file is required before scheduling.",
+        ),
+      );
+      return true;
+    }
     const screens = getScreens();
     const modal = new ModalBuilder()
-      .setCustomId("cinema:card_schedule_modal")
+      .setCustomId(modalId)
       .setTitle("Schedule Showtime")
       .addComponents(
         new ActionRowBuilder().addComponents(
